@@ -30,8 +30,10 @@ reuses your local **Azure CLI** session — no app registration or client ID req
   (numbers, datetimes, booleans, dynamic/JSON), column sorting, row/column
   counts, and query execution time.
 - **Share.** One click to copy to the clipboard: the **query** (as KQL), the
-  **results** (as a Markdown table), or **both**.
-- **Export.** Save results to a **CSV** file (RFC 4180) via a native save dialog.
+  **results** (as a Markdown table, **JSON**, **TSV**, or a KQL **`datatable()`**
+  literal you can paste straight back into a query), or the **query + results**.
+- **Export.** Save results to a file via a native save dialog — **CSV** (RFC 4180),
+  **JSON** (array of row objects), or **TSV** (tab-separated, opens in Excel).
 
 ## Prerequisites
 
@@ -73,7 +75,7 @@ Everything testable is covered by unit and integration tests.
 
 ```bash
 # Rust backend (auth cache, REST client, parsers, schema, formatters)
-cd src-tauri && cargo test          # 49 tests
+cd src-tauri && cargo test          # 59 tests
 
 # Frontend (store, actions, components, formatting)
 npm test                            # see test suite (Vitest + Testing Library)
@@ -99,8 +101,8 @@ npm run smoke         # in another shell (set CHROME_PATH if Chrome isn't at the
 React UI ──invoke──▶ Tauri commands (Rust)
   Connections tree      list_databases / get_schema
   Monaco + kusto editor run_query   (v2 REST → { columns, rows, elapsed_ms })
-  Results grid          format_share (csv / markdown, pure)
-  Share / Export        export_csv  (save dialog → write)
+  Results grid          format_share (markdown / json / tsv / datatable, pure)
+  Share / Export        export_result (save dialog → csv / json / tsv)
 
 Auth: TokenProvider trait ▶ AzCliTokenProvider (caches per cluster+tenant, expiry-aware)
 ```
@@ -117,7 +119,8 @@ integration-tested with `httpmock`:
 - **Schema** — `.show database <db> schema as json` is transformed into both a
   compact tree (for the sidebar) and the raw payload (fed to the language service
   for IntelliSense).
-- **Format** — pure CSV (RFC 4180) and GitHub-flavored Markdown formatters.
+- **Format** — pure formatters: CSV (RFC 4180), GitHub-flavored Markdown, JSON,
+  TSV, and KQL `datatable()` literals.
 
 The frontend stays thin: a `zustand` store orchestrates the Tauri commands and
 holds UI state; components render it.
@@ -138,4 +141,4 @@ serves the bundled output (see `scripts/tauri-frontend.mjs`) — identical to wh
   not support macOS. The web layer is covered by the headless-Chrome smoke test
   and the app logic by Rust + component tests.
 - Very large result sets are rendered virtualized; extremely large exports are
-  written directly to CSV.
+  written directly to the chosen file (CSV/JSON/TSV).

@@ -54,7 +54,16 @@ export interface SchemaResponse {
 }
 
 /** What to include when sharing to the clipboard. */
-export type ShareMode = "query" | "results" | "both";
+export type ShareMode =
+  | "query"
+  | "results"
+  | "both"
+  | "json"
+  | "tsv"
+  | "datatable";
+
+/** A file export format for saving results to disk. */
+export type ExportFormat = "csv" | "json" | "tsv";
 
 /** Serialized backend error: `{ kind, message }`. */
 export interface AppError {

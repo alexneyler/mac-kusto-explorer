@@ -7,7 +7,7 @@ use serde_json::Value;
 use tauri::State;
 
 use crate::error::Result;
-use crate::kusto::format::{self, ShareMode};
+use crate::kusto::format::{self, ExportFormat, ShareMode};
 use crate::kusto::model::KustoResultSet;
 use crate::kusto::schema::DatabaseSchema;
 use crate::state::AppState;
@@ -85,6 +85,12 @@ pub fn format_share(mode: ShareMode, query: String, result: KustoResultSet) -> S
 #[tauri::command]
 pub fn export_csv(path: String, result: KustoResultSet) -> Result<()> {
     format::write_csv_file(std::path::Path::new(&path), &result)
+}
+
+/// Write the given result set to `path` in the requested format (CSV/JSON/TSV).
+#[tauri::command]
+pub fn export_result(path: String, format: ExportFormat, result: KustoResultSet) -> Result<()> {
+    format::write_export_file(std::path::Path::new(&path), format, &result)
 }
 
 #[cfg(test)]

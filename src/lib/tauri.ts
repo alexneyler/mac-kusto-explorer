@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type {
   DatabaseSchema,
+  ExportFormat,
   KustoResultSet,
   QueryResponse,
   SchemaResponse,
@@ -71,6 +72,19 @@ export function exportCsv(args: {
 }): Promise<void> {
   return invoke<void>("export_csv", {
     path: args.path,
+    result: args.result,
+  });
+}
+
+/** Write a result set to `path` in the requested format (CSV/JSON/TSV). */
+export function exportResult(args: {
+  path: string;
+  format: ExportFormat;
+  result: KustoResultSet;
+}): Promise<void> {
+  return invoke<void>("export_result", {
+    path: args.path,
+    format: args.format,
     result: args.result,
   });
 }
