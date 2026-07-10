@@ -29,6 +29,11 @@ reuses your local **Azure CLI** session — no app registration or client ID req
 - **Results grid.** Virtualized table (TanStack) with typed cell rendering
   (numbers, datetimes, booleans, dynamic/JSON), column sorting, row/column
   counts, and query execution time.
+- **Result charts.** Toggle any result set between the table and a chart view
+  ([Recharts](https://recharts.org/)) — line, column, bar, area, stacked area,
+  pie, scatter, and time charts. Axes and numeric series are auto-detected from
+  column types (datetime → time chart), and you can override the X column and
+  which series to plot. Large results are capped for responsiveness.
 - **Share.** One click to copy to the clipboard: the **query** (as KQL), the
   **results** (as a Markdown table, **JSON**, **TSV**, or a KQL **`datatable()`**
   literal you can paste straight back into a query), or the **query + results**.

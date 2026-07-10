@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The virtualizer relies on real layout, which jsdom lacks. Mock it to emit a
@@ -74,5 +75,43 @@ describe("ResultsView", () => {
     expect(screen.getByText("TEXAS")).toBeInTheDocument();
     expect(screen.getByText("4701")).toBeInTheDocument();
     expect(screen.getByText("KANSAS")).toBeInTheDocument();
+  });
+
+  it("switches to the chart view via the Table/Chart toggle", async () => {
+    const user = userEvent.setup();
+    useAppStore.setState({ result: RESULT });
+    render(<ResultsView />);
+
+    // Table view first: no chart-type control yet.
+    expect(screen.queryByLabelText("Chart type")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /chart/i }));
+
+    // Chart controls appear, with numeric column auto-detected as a series.
+    expect(screen.getByLabelText("Chart type")).toBeInTheDocument();
+    expect(screen.getByLabelText("X axis column")).toBeInTheDocument();
+
+    // And back to the table.
+    await user.click(screen.getByRole("button", { name: /table/i }));
+    expect(screen.queryByLabelText("Chart type")).not.toBeInTheDocument();
+  });
+
+  it("shows a friendly message when there are no numeric columns to chart", async () => {
+    const user = userEvent.setup();
+    useAppStore.setState({
+      result: {
+        columns: [
+          { name: "State", type: "string" },
+          { name: "City", type: "string" },
+        ],
+        rows: [["TX", "Austin"]],
+        row_count: 1,
+        elapsed_ms: 5,
+      },
+    });
+    render(<ResultsView />);
+
+    await user.click(screen.getByRole("button", { name: /chart/i }));
+    expect(screen.getByText(/No numeric columns to chart/i)).toBeInTheDocument();
   });
 });
