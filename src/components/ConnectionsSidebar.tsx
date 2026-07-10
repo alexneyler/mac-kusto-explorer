@@ -6,11 +6,25 @@ import {
   FunctionSquare,
   Loader2,
   RefreshCw,
+  Search,
   Server,
   Table2,
+  X,
 } from "lucide-react";
 import { type MouseEvent, type ReactNode, useEffect, useState } from "react";
 
+import {
+  connectionHasDescendantMatch,
+  connectionVisible,
+  databaseHasDescendantMatch,
+  databaseVisible,
+  isFiltering,
+  type SchemaLookup,
+  tableSelfMatches,
+  visibleColumns,
+  visibleFunctions,
+  visibleTables,
+} from "../lib/schemaFilter";
 import { schemaKey, useAppStore } from "../store/appStore";
 import type { Connection, TableSchema } from "../types/kusto";
 
@@ -112,27 +126,37 @@ function Spinner() {
 function TableNode({
   table,
   depth,
+  filter,
 }: {
   table: TableSchema;
   depth: number;
+  filter: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const appendToQuery = useAppStore((s) => s.appendToQuery);
+
+  const filtering = isFiltering(filter);
+  const columns = visibleColumns(table, filter);
+  // While filtering, auto-expand only when a *column* matches (a name-only
+  // match keeps the row visible without forcing its columns open).
+  const descendantMatch =
+    filtering && !tableSelfMatches(table, filter) && columns.length > 0;
+  const showColumns = filtering ? descendantMatch : expanded;
 
   return (
     <div role="group">
       <TreeRow
         depth={depth}
         expandable
-        expanded={expanded}
+        expanded={showColumns}
         icon={<Table2 size={13} className="text-[var(--color-accent)]" />}
         label={table.name}
         hint={table.folder ?? undefined}
         onClick={() => setExpanded((v) => !v)}
         onDoubleClick={() => appendToQuery(table.name)}
       />
-      {expanded &&
-        table.columns.map((col) => (
+      {showColumns &&
+        columns.map((col) => (
           <TreeRow
             key={col.name}
             depth={depth + 1}
@@ -149,10 +173,12 @@ function DatabaseNode({
   conn,
   database,
   depth,
+  filter,
 }: {
   conn: Connection;
   database: string;
   depth: number;
+  filter: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const activeDatabase = useAppStore((s) => s.activeDatabase);
@@ -167,7 +193,14 @@ function DatabaseNode({
 
   const isActive = activeConnectionId === conn.id && activeDatabase === database;
 
-  // Lazily fetch the schema whenever this node is expanded and we don't have it.
+  const filtering = isFiltering(filter);
+  // Filtering never triggers new loads: it only auto-expands databases whose
+  // already-loaded schema contains a match.
+  const descendantMatch = databaseHasDescendantMatch(schema, filter);
+  const showChildren = filtering ? descendantMatch : expanded;
+
+  // Lazily fetch the schema whenever this node is expanded by the user and we
+  // don't have it. Filter-driven expansion deliberately does not load.
   useEffect(() => {
     if (expanded && !schema && !loading) {
       void loadSchema(conn.id, database);
@@ -179,12 +212,15 @@ function DatabaseNode({
     setActiveDatabase(database);
   }
 
+  const tables = schema ? visibleTables(schema, filter) : [];
+  const functions = schema ? visibleFunctions(schema, filter) : [];
+
   return (
     <div role="group">
       <TreeRow
         depth={depth}
         expandable
-        expanded={expanded}
+        expanded={showChildren}
         active={isActive}
         icon={<Database size={13} className="text-[var(--color-success)]" />}
         label={database}
@@ -196,7 +232,7 @@ function DatabaseNode({
         }
         onClick={handleClick}
       />
-      {expanded && (
+      {showChildren && (
         <div role="group">
           {loading && !schema && (
             <div
@@ -206,12 +242,12 @@ function DatabaseNode({
               <Spinner /> Loading schema…
             </div>
           )}
-          {schema?.tables.map((t) => (
-            <TableNode key={t.name} table={t} depth={depth + 1} />
+          {tables.map((t) => (
+            <TableNode key={t.name} table={t} depth={depth + 1} filter={filter} />
           ))}
-          {schema && schema.functions.length > 0 && (
+          {functions.length > 0 && (
             <>
-              {schema.functions.map((fn) => (
+              {functions.map((fn) => (
                 <TreeRow
                   key={fn.name}
                   depth={depth + 1}
@@ -243,18 +279,29 @@ function DatabaseNode({
   );
 }
 
-function ConnectionNode({ conn }: { conn: Connection }) {
+function ConnectionNode({ conn, filter }: { conn: Connection; filter: string }) {
   const activeConnectionId = useAppStore((s) => s.activeConnectionId);
   const setActiveConnection = useAppStore((s) => s.setActiveConnection);
   const loadDatabases = useAppStore((s) => s.loadDatabases);
   const refreshDatabases = useAppStore((s) => s.refreshDatabases);
   const databases = useAppStore((s) => s.databasesByConn[conn.id]);
+  const schemaByKey = useAppStore((s) => s.schemaByKey);
   const loading = useAppStore((s) => s.loadingDbByConn[conn.id]);
   const [expanded, setExpanded] = useState(activeConnectionId === conn.id);
 
-  // Lazily fetch databases whenever this node is expanded and we don't have
-  // them yet. This covers startup (the persisted-active node starts expanded)
-  // and expanding any non-active connection.
+  const lookup: SchemaLookup = (db) => schemaByKey[schemaKey(conn.id, db)];
+  const filtering = isFiltering(filter);
+  const descendantMatch = connectionHasDescendantMatch(
+    databases,
+    lookup,
+    filter,
+  );
+  const showChildren = filtering ? descendantMatch : expanded;
+
+  // Lazily fetch databases whenever this node is expanded by the user and we
+  // don't have them yet. This covers startup (the persisted-active node starts
+  // expanded) and expanding any non-active connection. Filter-driven expansion
+  // deliberately does not load.
   useEffect(() => {
     if (expanded && !databases && !loading) {
       void loadDatabases(conn.id);
@@ -268,12 +315,16 @@ function ConnectionNode({ conn }: { conn: Connection }) {
     setActiveConnection(conn.id);
   }
 
+  const visibleDatabases = filtering
+    ? (databases ?? []).filter((db) => databaseVisible(db, lookup(db), filter))
+    : databases;
+
   return (
     <div role="group">
       <TreeRow
         depth={0}
         expandable
-        expanded={expanded}
+        expanded={showChildren}
         active={activeConnectionId === conn.id}
         icon={<Server size={13} className="text-[var(--color-accent)]" />}
         label={conn.name}
@@ -286,15 +337,21 @@ function ConnectionNode({ conn }: { conn: Connection }) {
         }
         onClick={handleClick}
       />
-      {expanded && (
+      {showChildren && (
         <div role="group">
           {loading && !databases && (
             <div className="flex items-center gap-1.5 py-1 pl-8 text-[11px] text-[var(--color-text-faint)]">
               <Spinner /> Loading databases…
             </div>
           )}
-          {databases?.map((db) => (
-            <DatabaseNode key={db} conn={conn} database={db} depth={1} />
+          {visibleDatabases?.map((db) => (
+            <DatabaseNode
+              key={db}
+              conn={conn}
+              database={db}
+              depth={1}
+              filter={filter}
+            />
           ))}
           {databases && databases.length === 0 && (
             <div className="py-1 pl-8 text-[11px] text-[var(--color-text-faint)]">
@@ -307,14 +364,73 @@ function ConnectionNode({ conn }: { conn: Connection }) {
   );
 }
 
+/** Search box that filters the schema tree by name. */
+function SchemaSearch({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <div className="border-b border-[var(--color-border)] px-2 py-1.5">
+      <div className="relative flex items-center">
+        <Search
+          size={12}
+          className="pointer-events-none absolute left-2 text-[var(--color-text-faint)]"
+        />
+        <input
+          type="text"
+          role="searchbox"
+          aria-label="Filter schema"
+          placeholder="Filter tables, columns, functions…"
+          spellCheck={false}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] py-1 pl-6 pr-6 text-xs text-[var(--color-text)] placeholder:text-[var(--color-text-faint)] focus:border-[var(--color-accent)] focus:outline-none"
+        />
+        {value !== "" && (
+          <button
+            type="button"
+            aria-label="Clear filter"
+            title="Clear filter"
+            onClick={() => onChange("")}
+            className="absolute right-1.5 flex h-4 w-4 items-center justify-center rounded text-[var(--color-text-faint)] hover:text-[var(--color-text)]"
+          >
+            <X size={12} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ConnectionsSidebar() {
   const connections = useAppStore((s) => s.connections);
+  const databasesByConn = useAppStore((s) => s.databasesByConn);
+  const schemaByKey = useAppStore((s) => s.schemaByKey);
+  const [filter, setFilter] = useState("");
+
+  const filtering = isFiltering(filter);
+  const visibleConnections = filtering
+    ? connections.filter((c) =>
+        connectionVisible(
+          c,
+          databasesByConn[c.id],
+          (db) => schemaByKey[schemaKey(c.id, db)],
+          filter,
+        ),
+      )
+    : connections;
 
   return (
     <div className="flex h-full flex-col bg-[var(--color-bg-panel)]">
       <div className="border-b border-[var(--color-border)] px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
         Connections
       </div>
+      {connections.length > 0 && (
+        <SchemaSearch value={filter} onChange={setFilter} />
+      )}
       <div role="tree" className="flex-1 overflow-auto py-1">
         {connections.length === 0 ? (
           <div className="px-3 py-4 text-xs text-[var(--color-text-faint)]">
@@ -322,8 +438,14 @@ export function ConnectionsSidebar() {
             <span className="text-[var(--color-text-muted)]">+</span> button in
             the toolbar to add a cluster.
           </div>
+        ) : filtering && visibleConnections.length === 0 ? (
+          <div className="px-3 py-4 text-xs text-[var(--color-text-faint)]">
+            No schema objects match “{filter.trim()}”.
+          </div>
         ) : (
-          connections.map((c) => <ConnectionNode key={c.id} conn={c} />)
+          visibleConnections.map((c) => (
+            <ConnectionNode key={c.id} conn={c} filter={filter} />
+          ))
         )}
       </div>
     </div>
