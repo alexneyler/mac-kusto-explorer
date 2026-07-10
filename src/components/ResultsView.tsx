@@ -7,15 +7,24 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { AlertTriangle, ArrowDown, ArrowUp, Loader2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  BarChart3,
+  Loader2,
+  Table2,
+} from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import { formatCell } from "../lib/cell";
 import { formatDuration } from "../lib/utils";
 import { useAppStore } from "../store/appStore";
 import { errorMessage, isAppError } from "../types/kusto";
+import { ChartView } from "./ChartView";
 
 type Row = unknown[];
+type ResultView = "table" | "chart";
 
 const ROW_HEIGHT = 28;
 
@@ -66,7 +75,34 @@ export function ResultsView() {
     );
   }
 
-  return <ResultsGrid result={result} />;
+  return <ResultsPanel result={result} />;
+}
+
+function ResultsPanel({
+  result,
+}: {
+  result: NonNullable<ReturnType<typeof useAppStore.getState>["result"]>;
+}) {
+  const [view, setView] = useState<ResultView>("table");
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="min-h-0 flex-1">
+        {view === "table" ? (
+          <ResultsGrid result={result} />
+        ) : (
+          <ChartView result={result} />
+        )}
+      </div>
+      <ResultsStatusBar
+        rowCount={result.row_count}
+        columnCount={result.columns.length}
+        elapsedMs={result.elapsed_ms}
+        view={view}
+        onViewChange={setView}
+      />
+    </div>
+  );
 }
 
 function ResultsGrid({
@@ -115,9 +151,8 @@ function ResultsGrid({
       : 0;
 
   return (
-    <div className="flex h-full flex-col">
-      <div ref={parentRef} className="flex-1 overflow-auto">
-        <table className="w-full border-collapse text-xs">
+    <div ref={parentRef} className="h-full overflow-auto">
+      <table className="w-full border-collapse text-xs">
           <thead className="sticky top-0 z-10 bg-[var(--color-bg-elevated)]">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
@@ -198,12 +233,6 @@ function ResultsGrid({
             )}
           </tbody>
         </table>
-      </div>
-      <ResultsStatusBar
-        rowCount={result.row_count}
-        columnCount={result.columns.length}
-        elapsedMs={result.elapsed_ms}
-      />
     </div>
   );
 }
@@ -212,13 +241,18 @@ function ResultsStatusBar({
   rowCount,
   columnCount,
   elapsedMs,
+  view,
+  onViewChange,
 }: {
   rowCount: number;
   columnCount: number;
   elapsedMs: number;
+  view: ResultView;
+  onViewChange: (view: ResultView) => void;
 }) {
   return (
     <div className="flex items-center gap-4 border-t border-[var(--color-border)] bg-[var(--color-bg-panel)] px-3 py-1 text-[11px] text-[var(--color-text-muted)]">
+      <ViewToggle view={view} onViewChange={onViewChange} />
       <span>
         {rowCount.toLocaleString()} {rowCount === 1 ? "row" : "rows"}
       </span>
@@ -228,6 +262,47 @@ function ResultsStatusBar({
       <span className="ml-auto" title="Query execution time">
         {formatDuration(elapsedMs)}
       </span>
+    </div>
+  );
+}
+
+function ViewToggle({
+  view,
+  onViewChange,
+}: {
+  view: ResultView;
+  onViewChange: (view: ResultView) => void;
+}) {
+  const base =
+    "flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors";
+  const active = "bg-[var(--color-bg-active)] text-[var(--color-text)]";
+  const inactive = "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)]";
+  return (
+    <div
+      role="group"
+      aria-label="Result view"
+      className="flex items-center gap-0.5 rounded border border-[var(--color-border-strong)] bg-[var(--color-bg-elevated)] p-0.5"
+    >
+      <button
+        type="button"
+        aria-pressed={view === "table"}
+        onClick={() => onViewChange("table")}
+        className={`${base} ${view === "table" ? active : inactive}`}
+        title="Table view"
+      >
+        <Table2 size={12} />
+        Table
+      </button>
+      <button
+        type="button"
+        aria-pressed={view === "chart"}
+        onClick={() => onViewChange("chart")}
+        className={`${base} ${view === "chart" ? active : inactive}`}
+        title="Chart view"
+      >
+        <BarChart3 size={12} />
+        Chart
+      </button>
     </div>
   );
 }
