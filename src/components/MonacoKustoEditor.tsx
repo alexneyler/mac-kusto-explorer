@@ -59,6 +59,7 @@ export function MonacoKustoEditor({ onError }: Props) {
           padding: { top: 8, bottom: 8 },
           suggestSelection: "first",
           quickSuggestions: true,
+          "semanticHighlighting.enabled": true,
         });
         editorRef.current = editor;
 

@@ -5,10 +5,11 @@ import {
   Database,
   FunctionSquare,
   Loader2,
+  RefreshCw,
   Server,
   Table2,
 } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type MouseEvent, type ReactNode, useEffect, useState } from "react";
 
 import { schemaKey, useAppStore } from "../store/appStore";
 import type { Connection, TableSchema } from "../types/kusto";
@@ -22,6 +23,7 @@ function TreeRow({
   label,
   hint,
   active,
+  actions,
   onClick,
   onDoubleClick,
 }: {
@@ -32,6 +34,7 @@ function TreeRow({
   label: string;
   hint?: string;
   active?: boolean;
+  actions?: ReactNode;
   onClick?: () => void;
   onDoubleClick?: () => void;
 }) {
@@ -40,7 +43,7 @@ function TreeRow({
       role="treeitem"
       aria-expanded={expandable ? expanded : undefined}
       aria-selected={active}
-      className={`flex cursor-pointer select-none items-center gap-1 py-[3px] pr-2 text-xs hover:bg-[var(--color-bg-hover)] ${
+      className={`group flex cursor-pointer select-none items-center gap-1 py-[3px] pr-2 text-xs hover:bg-[var(--color-bg-hover)] ${
         active ? "bg-[var(--color-bg-active)]" : ""
       }`}
       style={{ paddingLeft: 6 + depth * 14 }}
@@ -58,13 +61,42 @@ function TreeRow({
         ) : null}
       </span>
       <span className="flex shrink-0 items-center">{icon}</span>
-      <span className="truncate text-[var(--color-text)]">{label}</span>
+      <span className="min-w-0 flex-1 truncate text-[var(--color-text)]">
+        {label}
+      </span>
       {hint && (
-        <span className="ml-auto truncate pl-2 text-[10px] text-[var(--color-text-faint)]">
+        <span className="truncate pl-2 text-[10px] text-[var(--color-text-faint)]">
           {hint}
         </span>
       )}
+      {actions && <span className="flex shrink-0 items-center">{actions}</span>}
     </div>
+  );
+}
+
+/** Small inline "force reload" button used on connection/database rows. */
+function RefreshButton({
+  label,
+  onRefresh,
+}: {
+  label: string;
+  onRefresh: () => void;
+}) {
+  function handleClick(e: MouseEvent) {
+    // Never toggle expand / change selection when refreshing.
+    e.stopPropagation();
+    onRefresh();
+  }
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={handleClick}
+      className="ml-1 flex h-4 w-4 items-center justify-center rounded text-[var(--color-text-faint)] opacity-0 hover:text-[var(--color-text)] group-hover:opacity-100 focus:opacity-100"
+    >
+      <RefreshCw size={12} />
+    </button>
   );
 }
 
@@ -126,12 +158,21 @@ function DatabaseNode({
   const activeDatabase = useAppStore((s) => s.activeDatabase);
   const activeConnectionId = useAppStore((s) => s.activeConnectionId);
   const setActiveDatabase = useAppStore((s) => s.setActiveDatabase);
+  const loadSchema = useAppStore((s) => s.loadSchema);
+  const refreshSchema = useAppStore((s) => s.refreshSchema);
   const schema = useAppStore((s) => s.schemaByKey[schemaKey(conn.id, database)]);
   const loading = useAppStore(
     (s) => s.loadingSchemaByKey[schemaKey(conn.id, database)],
   );
 
   const isActive = activeConnectionId === conn.id && activeDatabase === database;
+
+  // Lazily fetch the schema whenever this node is expanded and we don't have it.
+  useEffect(() => {
+    if (expanded && !schema && !loading) {
+      void loadSchema(conn.id, database);
+    }
+  }, [expanded, schema, loading, loadSchema, conn.id, database]);
 
   function handleClick() {
     setExpanded((v) => !v);
@@ -147,6 +188,12 @@ function DatabaseNode({
         active={isActive}
         icon={<Database size={13} className="text-[var(--color-success)]" />}
         label={database}
+        actions={
+          <RefreshButton
+            label={`Refresh ${database} schema`}
+            onRefresh={() => void refreshSchema(conn.id, database)}
+          />
+        }
         onClick={handleClick}
       />
       {expanded && (
@@ -199,12 +246,25 @@ function DatabaseNode({
 function ConnectionNode({ conn }: { conn: Connection }) {
   const activeConnectionId = useAppStore((s) => s.activeConnectionId);
   const setActiveConnection = useAppStore((s) => s.setActiveConnection);
+  const loadDatabases = useAppStore((s) => s.loadDatabases);
+  const refreshDatabases = useAppStore((s) => s.refreshDatabases);
   const databases = useAppStore((s) => s.databasesByConn[conn.id]);
   const loading = useAppStore((s) => s.loadingDbByConn[conn.id]);
   const [expanded, setExpanded] = useState(activeConnectionId === conn.id);
 
+  // Lazily fetch databases whenever this node is expanded and we don't have
+  // them yet. This covers startup (the persisted-active node starts expanded)
+  // and expanding any non-active connection.
+  useEffect(() => {
+    if (expanded && !databases && !loading) {
+      void loadDatabases(conn.id);
+    }
+  }, [expanded, databases, loading, loadDatabases, conn.id]);
+
   function handleClick() {
     setExpanded((v) => !v);
+    // Selecting is independent of expand: setActiveConnection early-returns
+    // when already active, but the effect above still handles loading.
     setActiveConnection(conn.id);
   }
 
@@ -218,6 +278,12 @@ function ConnectionNode({ conn }: { conn: Connection }) {
         icon={<Server size={13} className="text-[var(--color-accent)]" />}
         label={conn.name}
         hint={conn.tenant ? "tenant" : undefined}
+        actions={
+          <RefreshButton
+            label={`Refresh ${conn.name} databases`}
+            onRefresh={() => void refreshDatabases(conn.id)}
+          />
+        }
         onClick={handleClick}
       />
       {expanded && (

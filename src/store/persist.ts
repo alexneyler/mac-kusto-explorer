@@ -10,12 +10,16 @@ export interface PersistedState {
   connections: Connection[];
   activeConnectionId: string | null;
   activeDatabase: string | null;
+  // Last editor text. `null`/absent means "no saved query" and callers should
+  // fall back to their default query.
+  query: string | null;
 }
 
 const EMPTY: PersistedState = {
   connections: [],
   activeConnectionId: null,
   activeDatabase: null,
+  query: null,
 };
 
 export function loadPersisted(): PersistedState {
@@ -27,6 +31,7 @@ export function loadPersisted(): PersistedState {
       connections: Array.isArray(parsed.connections) ? parsed.connections : [],
       activeConnectionId: parsed.activeConnectionId ?? null,
       activeDatabase: parsed.activeDatabase ?? null,
+      query: typeof parsed.query === "string" ? parsed.query : null,
     };
   } catch {
     return { ...EMPTY };

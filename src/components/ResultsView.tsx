@@ -169,7 +169,7 @@ function ResultsGrid({
                   className="hover:bg-[var(--color-bg-hover)]"
                   style={{ height: ROW_HEIGHT }}
                 >
-                  <td className="border-b border-[var(--color-border)] px-2 text-right align-top text-[var(--color-text-faint)]">
+                  <td className="border-b border-[var(--color-border)] px-2 text-right align-middle text-[var(--color-text-faint)]">
                     {vr.index + 1}
                   </td>
                   {row.getVisibleCells().map((cell) => {
@@ -177,7 +177,7 @@ function ResultsGrid({
                     return (
                       <td
                         key={cell.id}
-                        className={`max-w-[420px] truncate border-b border-r border-[var(--color-border)] px-2 align-top ${
+                        className={`max-w-[420px] truncate border-b border-r border-[var(--color-border)] px-2 align-middle ${
                           display.numeric ? "text-right tabular-nums" : ""
                         } ${
                           display.isNull ? "italic text-[var(--color-text-faint)]" : ""

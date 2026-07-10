@@ -46,11 +46,44 @@ export function ensureKusto(): Promise<Monaco> {
   return initPromise;
 }
 
+// Kusto token types emitted by @kusto/monaco-kusto's Monarch tokenizer and its
+// semantic-tokens provider (the string values of its internal `Token` enum).
+// The theme MUST map these to colors, otherwise every token falls back to the
+// editor foreground and highlighting looks flat. These are the same VS Code
+// "dark+" hues the ADX web UI uses, which read well on our #1b1d23 background.
+const KUSTO_TOKEN_RULES: monaco.editor.ITokenThemeRule[] = [
+  { token: "plainText", foreground: "d4d4d4" },
+  { token: "comment", foreground: "6a9955" },
+  { token: "punctuation", foreground: "d4d4d4" },
+  { token: "directive", foreground: "faf9c2" },
+  { token: "literal", foreground: "d4d4d4" },
+  { token: "stringLiteral", foreground: "ce9178" },
+  { token: "type", foreground: "569cd6" },
+  { token: "column", foreground: "9cdcfe" },
+  { token: "table", foreground: "d7ba7d" },
+  { token: "database", foreground: "d7ba7d" },
+  { token: "function", foreground: "dcdcaa" },
+  { token: "parameter", foreground: "92caf4" },
+  { token: "variable", foreground: "92caf4" },
+  { token: "identifier", foreground: "d4d4d4" },
+  { token: "clientParameter", foreground: "2b91af" },
+  { token: "queryParameter", foreground: "2b91af" },
+  { token: "scalarParameter", foreground: "569cd6" },
+  { token: "mathOperator", foreground: "d4d4d4" },
+  { token: "queryOperator", foreground: "4ec9b0" },
+  { token: "command", foreground: "569cd6" },
+  { token: "keyword", foreground: "569cd6" },
+  { token: "materializedView", foreground: "d7ba7d" },
+  { token: "schemaMember", foreground: "d4d4d4" },
+  { token: "signatureParameter", foreground: "d4d4d4" },
+  { token: "option", foreground: "d4d4d4" },
+];
+
 function defineTheme() {
   monaco.editor.defineTheme(THEME, {
     base: "vs-dark",
     inherit: true,
-    rules: [],
+    rules: KUSTO_TOKEN_RULES,
     colors: {
       "editor.background": "#1b1d23",
       "editor.foreground": "#e6e8ec",

@@ -9,6 +9,8 @@ vi.mock("../lib/tauri", () => ({
 }));
 
 import * as api from "../lib/tauri";
+import { makeConnection } from "../lib/connection";
+import { loadPersisted, savePersisted } from "./persist";
 import {
   baseDataState,
   schemaKey,
@@ -17,6 +19,10 @@ import {
 } from "./appStore";
 
 const mockApi = vi.mocked(api);
+
+function makeConn() {
+  return makeConnection({ clusterUrl: "help" });
+}
 
 beforeEach(() => {
   localStorage.clear();
@@ -165,5 +171,96 @@ describe("removeConnection", () => {
     const s = useAppStore.getState();
     expect(s.connections).toHaveLength(1);
     expect(s.activeConnectionId).toBe(a.id);
+  });
+});
+
+describe("query persistence", () => {
+  it("persists the query on setQuery", () => {
+    useAppStore.getState().setQuery("Persisted | take 3");
+    expect(loadPersisted().query).toBe("Persisted | take 3");
+  });
+
+  it("persists the query on appendToQuery", () => {
+    useAppStore.setState({ query: "Base" });
+    useAppStore.getState().appendToQuery("MyTable");
+    expect(loadPersisted().query).toBe("Base\nMyTable");
+  });
+
+  it("hydrates the query from persisted state on store (re)creation", async () => {
+    savePersisted({
+      connections: [],
+      activeConnectionId: null,
+      activeDatabase: null,
+      query: "Remembered | take 7",
+    });
+    vi.resetModules();
+    const fresh = await import("./appStore");
+    expect(fresh.useAppStore.getState().query).toBe("Remembered | take 7");
+  });
+
+  it("falls back to DEFAULT_QUERY when no query is persisted", async () => {
+    vi.resetModules();
+    const fresh = await import("./appStore");
+    expect(fresh.useAppStore.getState().query).toBe(fresh.DEFAULT_QUERY);
+  });
+});
+
+describe("refresh (force reload)", () => {
+  it("keeps existing databases when a refresh fails", async () => {
+    mockApi.listDatabases.mockRejectedValue({ kind: "net", message: "down" });
+    const conn = makeConn();
+    useAppStore.setState({
+      connections: [conn],
+      activeConnectionId: conn.id,
+      databasesByConn: { [conn.id]: ["Samples", "TestDB"] },
+    });
+    await useAppStore.getState().refreshDatabases(conn.id);
+    const s = useAppStore.getState();
+    expect(s.databasesByConn[conn.id]).toEqual(["Samples", "TestDB"]);
+    expect(s.error).toEqual({ kind: "net", message: "down" });
+  });
+
+  it("replaces databases on a successful refresh", async () => {
+    mockApi.listDatabases.mockResolvedValue(["A", "B", "C"]);
+    const conn = makeConn();
+    useAppStore.setState({
+      connections: [conn],
+      databasesByConn: { [conn.id]: ["Samples"] },
+    });
+    await useAppStore.getState().refreshDatabases(conn.id);
+    expect(useAppStore.getState().databasesByConn[conn.id]).toEqual([
+      "A",
+      "B",
+      "C",
+    ]);
+  });
+
+  it("keeps existing schema when a schema refresh fails", async () => {
+    mockApi.getSchema.mockRejectedValue({ kind: "net", message: "down" });
+    const conn = makeConn();
+    const key = schemaKey(conn.id, "Samples");
+    const existing = { name: "Samples", tables: [], functions: [] };
+    useAppStore.setState({
+      connections: [conn],
+      schemaByKey: { [key]: existing },
+    });
+    await useAppStore.getState().refreshSchema(conn.id, "Samples");
+    const s = useAppStore.getState();
+    expect(s.schemaByKey[key]).toBe(existing);
+    expect(s.error).toEqual({ kind: "net", message: "down" });
+  });
+
+  it("bypasses the schema cache guard on a forced refresh", async () => {
+    const fresh = { name: "Samples", tables: [], functions: [] };
+    mockApi.getSchema.mockResolvedValue({ database: fresh, raw: {} });
+    const conn = makeConn();
+    const key = schemaKey(conn.id, "Samples");
+    useAppStore.setState({
+      connections: [conn],
+      schemaByKey: { [key]: { name: "Samples", tables: [], functions: [] } },
+    });
+    await useAppStore.getState().refreshSchema(conn.id, "Samples");
+    expect(mockApi.getSchema).toHaveBeenCalledTimes(1);
+    expect(useAppStore.getState().schemaByKey[key]).toBe(fresh);
   });
 });

@@ -52,8 +52,14 @@ interface Actions {
   setQuery(query: string): void;
   appendToQuery(text: string): void;
   clearError(): void;
-  loadDatabases(connectionId: string): Promise<void>;
-  loadSchema(connectionId: string, database: string): Promise<void>;
+  loadDatabases(connectionId: string, force?: boolean): Promise<void>;
+  loadSchema(
+    connectionId: string,
+    database: string,
+    force?: boolean,
+  ): Promise<void>;
+  refreshDatabases(connectionId: string): Promise<void>;
+  refreshSchema(connectionId: string, database: string): Promise<void>;
   runActiveQuery(): Promise<void>;
 }
 
@@ -84,6 +90,10 @@ function initialState(): DataState {
     connections: persisted.connections,
     activeConnectionId: persisted.activeConnectionId,
     activeDatabase: persisted.activeDatabase,
+    query:
+      typeof persisted.query === "string" && persisted.query.length > 0
+        ? persisted.query
+        : DEFAULT_QUERY,
   };
 }
 
@@ -139,6 +149,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   setQuery(query) {
     set({ query });
+    // Desktop app: localStorage writes are cheap, so persist immediately
+    // rather than debouncing. This keeps the editor text across reloads.
+    persist(get());
   },
 
   appendToQuery(text) {
@@ -147,16 +160,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const next = base === "" ? text : `${base}\n${text}`;
       return { query: next };
     });
+    persist(get());
   },
 
   clearError() {
     set({ error: null });
   },
 
-  async loadDatabases(connectionId) {
+  async loadDatabases(connectionId, force = false) {
     const conn = get().connections.find((c) => c.id === connectionId);
     if (!conn) return;
     if (get().loadingDbByConn[connectionId]) return;
+    // Without `force`, skip when we already have a cached list.
+    if (!force && get().databasesByConn[connectionId]) return;
     set((s) => ({
       loadingDbByConn: { ...s.loadingDbByConn, [connectionId]: true },
       error: null,
@@ -166,6 +182,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
         cluster: conn.clusterUrl,
         tenant: conn.tenant,
       });
+      // Only replace the cached list on success, so a failed refresh never
+      // wipes the databases already on screen.
       set((s) => ({
         databasesByConn: { ...s.databasesByConn, [connectionId]: databases },
       }));
@@ -178,11 +196,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
-  async loadSchema(connectionId, database) {
+  async loadSchema(connectionId, database, force = false) {
     const conn = get().connections.find((c) => c.id === connectionId);
     if (!conn) return;
     const key = schemaKey(connectionId, database);
-    if (get().schemaByKey[key] || get().loadingSchemaByKey[key]) return;
+    if (get().loadingSchemaByKey[key]) return;
+    // Without `force`, skip when the schema is already cached.
+    if (!force && get().schemaByKey[key]) return;
     set((s) => ({
       loadingSchemaByKey: { ...s.loadingSchemaByKey, [key]: true },
     }));
@@ -192,6 +212,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
         database,
         tenant: conn.tenant,
       });
+      // Only replace the cached schema on success; the previous value stays
+      // visible until the fresh one arrives.
       set((s) => ({
         schemaByKey: { ...s.schemaByKey, [key]: res.database },
         rawSchemaByKey: { ...s.rawSchemaByKey, [key]: res.raw },
@@ -203,6 +225,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
         loadingSchemaByKey: { ...s.loadingSchemaByKey, [key]: false },
       }));
     }
+  },
+
+  refreshDatabases(connectionId) {
+    return get().loadDatabases(connectionId, true);
+  },
+
+  refreshSchema(connectionId, database) {
+    return get().loadSchema(connectionId, database, true);
   },
 
   async runActiveQuery() {
@@ -247,6 +277,7 @@ function persist(state: DataState): void {
     connections: state.connections,
     activeConnectionId: state.activeConnectionId,
     activeDatabase: state.activeDatabase,
+    query: state.query,
   });
 }
 

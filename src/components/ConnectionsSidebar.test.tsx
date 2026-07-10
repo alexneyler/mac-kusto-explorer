@@ -91,4 +91,74 @@ describe("ConnectionsSidebar", () => {
 
     expect(useAppStore.getState().query).toContain("StormEvents");
   });
+
+  it("auto-loads databases for the persisted active connection on mount", async () => {
+    mockApi.listDatabases.mockResolvedValue(["Samples", "TestDB"]);
+    const conn = makeConnection({ clusterUrl: "help" });
+    // Active + expanded, but databases not yet loaded (simulates app reload).
+    useAppStore.setState({
+      connections: [conn],
+      activeConnectionId: conn.id,
+    });
+    render(<ConnectionsSidebar />);
+
+    expect(await screen.findByText("Samples")).toBeInTheDocument();
+    expect(mockApi.listDatabases).toHaveBeenCalledWith({
+      cluster: conn.clusterUrl,
+      tenant: undefined,
+    });
+  });
+
+  it("loads databases when expanding a non-active connection", async () => {
+    mockApi.listDatabases.mockResolvedValue(["OtherDB"]);
+    const active = makeConnection({ clusterUrl: "help" });
+    const other = makeConnection({ clusterUrl: "other" });
+    useAppStore.setState({
+      connections: [active, other],
+      activeConnectionId: active.id,
+      databasesByConn: { [active.id]: [] },
+    });
+    render(<ConnectionsSidebar />);
+
+    // The non-active connection starts collapsed; expanding it loads dbs.
+    await userEvent.click(screen.getByText("other"));
+    expect(await screen.findByText("OtherDB")).toBeInTheDocument();
+    expect(mockApi.listDatabases).toHaveBeenCalledWith({
+      cluster: other.clusterUrl,
+      tenant: undefined,
+    });
+  });
+
+  it("refresh does not clear existing databases when the re-fetch fails", async () => {
+    mockApi.listDatabases.mockRejectedValue({ kind: "net", message: "down" });
+    const conn = seedActive();
+    render(<ConnectionsSidebar />);
+
+    expect(screen.getByText("Samples")).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Refresh help databases/i }),
+    );
+
+    // Old list stays visible; error is recorded.
+    expect(screen.getByText("Samples")).toBeInTheDocument();
+    expect(useAppStore.getState().databasesByConn[conn.id]).toEqual([
+      "Samples",
+    ]);
+    expect(useAppStore.getState().error).toEqual({
+      kind: "net",
+      message: "down",
+    });
+  });
+
+  it("refresh replaces databases on success", async () => {
+    mockApi.listDatabases.mockResolvedValue(["Fresh1", "Fresh2"]);
+    seedActive();
+    render(<ConnectionsSidebar />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Refresh help databases/i }),
+    );
+    expect(await screen.findByText("Fresh1")).toBeInTheDocument();
+    expect(screen.getByText("Fresh2")).toBeInTheDocument();
+  });
 });
