@@ -21,6 +21,11 @@ reuses your local **Azure CLI** session — no app registration or client ID req
 - **Results grid.** Virtualized table (TanStack) with typed cell rendering
   (numbers, datetimes, booleans, dynamic/JSON), column sorting, row/column
   counts, and query execution time.
+- **Data-view tools.** Work with the loaded result set directly in the grid:
+  toggle **hide empty columns**, toggle **wrap text** for long values, and
+  **explore column values** — a per-column popover (the chart icon in the
+  header) showing the value distribution computed client-side: top values with
+  counts, percentages, and mini bars, plus distinct- and null-counts.
 - **Share.** One click to copy to the clipboard: the **query** (as KQL), the
   **results** (as a Markdown table), or **both**.
 - **Export.** Save results to a **CSV** file (RFC 4180) via a native save dialog.

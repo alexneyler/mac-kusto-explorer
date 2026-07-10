@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The virtualizer relies on real layout, which jsdom lacks. Mock it to emit a
@@ -16,6 +17,8 @@ vi.mock("@tanstack/react-virtual", () => ({
     return {
       getVirtualItems: () => items,
       getTotalSize: () => count * 28,
+      measure: () => {},
+      measureElement: () => {},
     };
   },
 }));
@@ -35,6 +38,19 @@ const RESULT: QueryResponse = {
   ],
   row_count: 2,
   elapsed_ms: 42,
+};
+
+const RESULT_WITH_EMPTY: QueryResponse = {
+  columns: [
+    { name: "State", type: "string" },
+    { name: "Notes", type: "string" },
+  ],
+  rows: [
+    ["TEXAS", null],
+    ["KANSAS", ""],
+  ],
+  row_count: 2,
+  elapsed_ms: 10,
 };
 
 beforeEach(() => {
@@ -74,5 +90,59 @@ describe("ResultsView", () => {
     expect(screen.getByText("TEXAS")).toBeInTheDocument();
     expect(screen.getByText("4701")).toBeInTheDocument();
     expect(screen.getByText("KANSAS")).toBeInTheDocument();
+  });
+
+  it("hides all-empty columns when the toggle is enabled", async () => {
+    const user = userEvent.setup();
+    useAppStore.setState({ result: RESULT_WITH_EMPTY });
+    render(<ResultsView />);
+
+    expect(screen.getByText("Notes")).toBeInTheDocument();
+    expect(screen.getByText("2 columns")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Hide empty columns" }));
+
+    expect(screen.queryByText("Notes")).not.toBeInTheDocument();
+    expect(screen.getByText("1 column")).toBeInTheDocument();
+    // Non-empty columns are untouched.
+    expect(screen.getByText("State")).toBeInTheDocument();
+  });
+
+  it("disables the hide-empty toggle when there are no empty columns", () => {
+    useAppStore.setState({ result: RESULT });
+    render(<ResultsView />);
+    expect(
+      screen.getByRole("button", { name: "Hide empty columns" }),
+    ).toBeDisabled();
+  });
+
+  it("switches cells from truncated to wrapped when wrap is toggled", async () => {
+    const user = userEvent.setup();
+    useAppStore.setState({ result: RESULT });
+    render(<ResultsView />);
+
+    const cell = () => screen.getByText("TEXAS").closest("td");
+    expect(cell()?.className).toContain("truncate");
+    expect(cell()?.className).not.toContain("whitespace-pre-wrap");
+
+    await user.click(screen.getByRole("button", { name: "Wrap text" }));
+
+    expect(cell()?.className).toContain("whitespace-pre-wrap");
+    expect(cell()?.className).not.toContain("truncate");
+  });
+
+  it("shows a value distribution when exploring a column", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    useAppStore.setState({ result: RESULT });
+    render(<ResultsView />);
+
+    await user.click(
+      screen.getByRole("button", { name: "Explore values in State" }),
+    );
+
+    // Two distinct states, no nulls, both at 50%.
+    expect(await screen.findByText("2 distinct")).toBeInTheDocument();
+    expect(screen.getByText("0 null")).toBeInTheDocument();
+    expect(screen.getAllByText(/50\.0%/)).toHaveLength(2);
   });
 });
