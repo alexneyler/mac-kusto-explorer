@@ -13,7 +13,10 @@ reuses your local **Azure CLI** session — no app registration or client ID req
 - **Connect to any cluster you can access.** Authentication uses the `az` CLI
   (`az account get-access-token`), so any cluster your Azure identity can reach
   works out of the box. Add a connection by cluster URL; browse databases,
-  tables, columns, and functions in a lazy-loaded tree.
+  tables, columns, and functions in a lazy-loaded tree, and **search/filter** it
+  by name from the sidebar box (**Ctrl/⌘+F** to focus). Matches connections,
+  databases, tables, columns, and functions; highlights the matched text,
+  auto-expands to reveal matches, and shows a live match count.
 - **Real KQL editor.** Monaco editor wired to
   [`@kusto/monaco-kusto`](https://github.com/Azure/monaco-kusto) — the same
   language service the ADX web UI uses — for syntax highlighting, schema-aware
@@ -73,7 +76,7 @@ Everything testable is covered by unit and integration tests.
 cd src-tauri && cargo test          # 49 tests
 
 # Frontend (store, actions, components, formatting)
-npm test                            # 84 tests (Vitest + Testing Library)
+npm test                            # see test suite (Vitest + Testing Library)
 
 # Type-check the frontend
 npm run typecheck
