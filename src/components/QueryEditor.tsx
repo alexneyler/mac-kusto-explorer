@@ -2,6 +2,7 @@ import { type KeyboardEvent, useState } from "react";
 
 import { selectActiveConnection, useAppStore } from "../store/appStore";
 import { MonacoKustoEditor } from "./MonacoKustoEditor";
+import { QueryTabs } from "./QueryTabs";
 
 /**
  * KQL editor pane. Renders the Monaco + Kusto language-service editor, falling
@@ -15,6 +16,7 @@ export function QueryEditor() {
 
   return (
     <div className="flex h-full flex-col bg-[var(--color-bg)]">
+      <QueryTabs />
       <div className="flex items-center justify-between border-b border-[var(--color-border)] px-3 py-1.5 text-[11px] text-[var(--color-text-muted)]">
         <span className="font-medium">Query</span>
         <span className="truncate">

@@ -18,6 +18,11 @@ reuses your local **Azure CLI** session — no app registration or client ID req
   [`@kusto/monaco-kusto`](https://github.com/Azure/monaco-kusto) — the same
   language service the ADX web UI uses — for syntax highlighting, schema-aware
   completion, signature help, and diagnostics. Run with **⌘/Ctrl+Enter** or **F5**.
+- **Multiple query tabs.** Work on several queries at once — each tab keeps its
+  own KQL text, result set, and **connection/database context**. Add a tab with
+  **+**, close one with its **×**, switch by clicking, and double-click a tab to
+  rename it. The Toolbar's connection and database selectors act on the active
+  tab, and open tabs are restored on the next launch.
 - **Results grid.** Virtualized table (TanStack) with typed cell rendering
   (numbers, datetimes, booleans, dynamic/JSON), column sorting, row/column
   counts, and query execution time.
@@ -68,7 +73,7 @@ Everything testable is covered by unit and integration tests.
 cd src-tauri && cargo test          # 49 tests
 
 # Frontend (store, actions, components, formatting)
-npm test                            # 53 tests (Vitest + Testing Library)
+npm test                            # 84 tests (Vitest + Testing Library)
 
 # Type-check the frontend
 npm run typecheck

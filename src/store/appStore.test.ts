@@ -174,6 +174,152 @@ describe("removeConnection", () => {
   });
 });
 
+describe("query tabs", () => {
+  it("starts with a single default tab mirrored into the active fields", () => {
+    const s = useAppStore.getState();
+    expect(s.tabs).toHaveLength(1);
+    expect(s.activeTabId).toBe(s.tabs[0].id);
+    expect(s.tabs[0].query).toBe(s.query);
+    expect(s.tabs[0].title).toBe("Query 1");
+  });
+
+  it("addTab creates an empty tab, selects it, and clears the mirror", () => {
+    useAppStore.setState({ result: { columns: [], rows: [], row_count: 0, elapsed_ms: 1 } });
+    const id = useAppStore.getState().addTab();
+    const s = useAppStore.getState();
+    expect(s.tabs).toHaveLength(2);
+    expect(s.activeTabId).toBe(id);
+    expect(s.tabs[1].title).toBe("Query 2");
+    expect(s.query).toBe("");
+    expect(s.result).toBeNull();
+  });
+
+  it("keeps per-tab query text isolated", () => {
+    const first = useAppStore.getState().activeTabId;
+    useAppStore.getState().setQuery("first tab query");
+    const second = useAppStore.getState().addTab();
+    useAppStore.getState().setQuery("second tab query");
+
+    useAppStore.getState().setActiveTab(first);
+    expect(useAppStore.getState().query).toBe("first tab query");
+    useAppStore.getState().setActiveTab(second);
+    expect(useAppStore.getState().query).toBe("second tab query");
+  });
+
+  it("keeps per-tab results isolated across a run", async () => {
+    mockApi.listDatabases.mockResolvedValue(["Samples"]);
+    mockApi.runQuery.mockResolvedValue({
+      columns: [{ name: "n", type: "long" }],
+      rows: [[1]],
+      row_count: 1,
+      elapsed_ms: 3,
+    });
+    useAppStore.getState().addConnection({ clusterUrl: "help" });
+    useAppStore.setState({ activeDatabase: "Samples" });
+
+    const first = useAppStore.getState().activeTabId;
+    await useAppStore.getState().runActiveQuery();
+    expect(useAppStore.getState().result?.row_count).toBe(1);
+
+    // A fresh tab has no result of its own.
+    const second = useAppStore.getState().addTab();
+    expect(useAppStore.getState().result).toBeNull();
+
+    // Switching back restores the first tab's result.
+    useAppStore.getState().setActiveTab(first);
+    expect(useAppStore.getState().result?.row_count).toBe(1);
+    useAppStore.getState().setActiveTab(second);
+    expect(useAppStore.getState().result).toBeNull();
+  });
+
+  it("keeps per-tab connection/database context isolated", async () => {
+    mockApi.listDatabases.mockResolvedValue(["Samples", "Other"]);
+    mockApi.getSchema.mockResolvedValue({
+      database: { name: "Samples", tables: [], functions: [] },
+      raw: {},
+    });
+    const conn = useAppStore.getState().addConnection({ clusterUrl: "help" });
+    useAppStore.getState().setActiveDatabase("Samples");
+
+    const first = useAppStore.getState().activeTabId;
+    expect(useAppStore.getState().tabs[0].connectionId).toBe(conn.id);
+    expect(useAppStore.getState().tabs[0].database).toBe("Samples");
+
+    // New tab inherits the active context, then diverges.
+    const second = useAppStore.getState().addTab();
+    expect(useAppStore.getState().activeConnectionId).toBe(conn.id);
+    expect(useAppStore.getState().activeDatabase).toBe("Samples");
+    useAppStore.getState().setActiveDatabase("Other");
+    expect(useAppStore.getState().activeDatabase).toBe("Other");
+
+    // Switching back restores the first tab's database into the mirror.
+    useAppStore.getState().setActiveTab(first);
+    expect(useAppStore.getState().activeDatabase).toBe("Samples");
+    useAppStore.getState().setActiveTab(second);
+    expect(useAppStore.getState().activeDatabase).toBe("Other");
+  });
+
+  it("drops a removed connection from every tab", () => {
+    mockApi.listDatabases.mockResolvedValue([]);
+    const a = useAppStore.getState().addConnection({ clusterUrl: "a" });
+    useAppStore.getState().addTab();
+    const b = useAppStore.getState().addConnection({ clusterUrl: "b" });
+    // tab 1 -> a, tab 2 -> b (active)
+    useAppStore.getState().removeConnection(b.id);
+    const s = useAppStore.getState();
+    expect(s.tabs.every((t) => t.connectionId !== b.id)).toBe(true);
+    // The active tab falls back to the first remaining connection.
+    expect(s.activeConnectionId).toBe(a.id);
+  });
+
+  it("closeTab removes the tab and selects the left neighbour", () => {
+    const first = useAppStore.getState().activeTabId;
+    const second = useAppStore.getState().addTab();
+    useAppStore.getState().setActiveTab(second);
+    useAppStore.getState().closeTab(second);
+    const s = useAppStore.getState();
+    expect(s.tabs).toHaveLength(1);
+    expect(s.activeTabId).toBe(first);
+  });
+
+  it("closing the last remaining tab replaces it with a fresh default", () => {
+    const only = useAppStore.getState().activeTabId;
+    useAppStore.getState().closeTab(only);
+    const s = useAppStore.getState();
+    expect(s.tabs).toHaveLength(1);
+    expect(s.tabs[0].id).not.toBe(only);
+    expect(s.tabs[0].query).toBe("StormEvents\n| take 100");
+    expect(s.query).toBe("StormEvents\n| take 100");
+  });
+
+  it("renameTab updates the title but ignores blank names", () => {
+    const id = useAppStore.getState().activeTabId;
+    useAppStore.getState().renameTab(id, "My analysis");
+    expect(useAppStore.getState().tabs[0].title).toBe("My analysis");
+    useAppStore.getState().renameTab(id, "   ");
+    expect(useAppStore.getState().tabs[0].title).toBe("My analysis");
+  });
+
+  it("persists tabs and restores them on store re-creation", async () => {
+    mockApi.listDatabases.mockResolvedValue(["Samples"]);
+    const conn = useAppStore.getState().addConnection({ clusterUrl: "help" });
+    useAppStore.getState().setQuery("tab one");
+    useAppStore.getState().setActiveDatabase("Samples");
+    useAppStore.getState().addTab();
+    useAppStore.getState().setQuery("tab two");
+    expect(loadPersisted().tabs).toHaveLength(2);
+
+    vi.resetModules();
+    const fresh = await import("./appStore");
+    const s = fresh.useAppStore.getState();
+    expect(s.tabs).toHaveLength(2);
+    expect(s.tabs.map((t) => t.query)).toEqual(["tab one", "tab two"]);
+    // Per-tab connection/database context survives a reload.
+    expect(s.tabs[0].connectionId).toBe(conn.id);
+    expect(s.tabs[0].database).toBe("Samples");
+  });
+});
+
 describe("query persistence", () => {
   it("persists the query on setQuery", () => {
     useAppStore.getState().setQuery("Persisted | take 3");

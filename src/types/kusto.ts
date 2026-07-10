@@ -70,6 +70,21 @@ export interface Connection {
   tenant?: string;
 }
 
+/**
+ * A single query tab. Each tab carries its own editor text, its own
+ * result/running/error state, and its own connection/database context.
+ */
+export interface QueryTab {
+  id: string;
+  title: string;
+  query: string;
+  result: QueryResponse | null;
+  running: boolean;
+  error: AppError | string | null;
+  connectionId: string | null;
+  database: string | null;
+}
+
 /** Type guard for the backend's `{ kind, message }` error shape. */
 export function isAppError(value: unknown): value is AppError {
   return (
