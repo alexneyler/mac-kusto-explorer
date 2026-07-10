@@ -1,0 +1,46 @@
+{
+    "error": {
+        "code": "General_BadRequest",
+        "message": "Request is invalid and cannot be executed.",
+        "@type": "Kusto.Data.Exceptions.KustoBadRequestException",
+        "@message": "Request is invalid and cannot be processed: Syntax error: SYN0002: Query operator expected. [line:position=1:15]",
+        "@failureCode": 400,
+        "@context": {
+            "timestamp": "2026-07-10T18:15:33.1047125Z",
+            "serviceAlias": "HELP",
+            "clientRequestId": "unspecified;025725af-2045-4139-a8d4-9e0c0d63c489",
+            "activityId": "48db2513-33a8-431d-9ea1-406b15e0aa5c",
+            "subActivityId": "838fb517-510b-4c69-a4d2-ad6a0ba758fd",
+            "activityType": "DN.FE.ExecuteQuery",
+            "parentActivityId": "06974dc7-4660-42be-9c9b-da9e4068543a",
+            "activityStack": "(Activity stack: CRID=unspecified;025725af-2045-4139-a8d4-9e0c0d63c489 ARID=48db2513-33a8-431d-9ea1-406b15e0aa5c > KD.Query.Client.ExecuteQueryAsKustoDataStream/3395dc1b-5932-47f3-9243-1b289c6cff40 > KD.Query.Client.ExecuteQueryAsKustoDataStream/3395dc1b-5932-47f3-9243-1b289c6cff40 > P.Grpc.Service.ExecuteQueryAsKustoDataStream2/06974dc7-4660-42be-9c9b-da9e4068543a > DN.FE.ExecuteQuery/838fb517-510b-4c69-a4d2-ad6a0ba758fd)",
+            "serviceFarm": null
+        },
+        "@permanent": true,
+        "@database": "Samples",
+        "innererror": {
+            "code": "SYN0002",
+            "message": "Query operator expected.",
+            "@type": "Kusto.Data.Exceptions.SyntaxException",
+            "@message": "Syntax error: SYN0002: Query operator expected. [line:position=1:15]",
+            "@failureCode": 400,
+            "@context": {
+                "timestamp": "2026-07-10T18:15:33.0989397Z",
+                "serviceAlias": "HELP",
+                "clientRequestId": "unspecified;025725af-2045-4139-a8d4-9e0c0d63c489",
+                "activityId": "48db2513-33a8-431d-9ea1-406b15e0aa5c",
+                "subActivityId": "838fb517-510b-4c69-a4d2-ad6a0ba758fd",
+                "activityType": "DN.FE.ExecuteQuery",
+                "parentActivityId": "06974dc7-4660-42be-9c9b-da9e4068543a",
+                "activityStack": "(Activity stack: CRID=unspecified;025725af-2045-4139-a8d4-9e0c0d63c489 ARID=48db2513-33a8-431d-9ea1-406b15e0aa5c > KD.Query.Client.ExecuteQueryAsKustoDataStream/3395dc1b-5932-47f3-9243-1b289c6cff40 > KD.Query.Client.ExecuteQueryAsKustoDataStream/3395dc1b-5932-47f3-9243-1b289c6cff40 > P.Grpc.Service.ExecuteQueryAsKustoDataStream2/06974dc7-4660-42be-9c9b-da9e4068543a > DN.FE.ExecuteQuery/838fb517-510b-4c69-a4d2-ad6a0ba758fd)",
+                "serviceFarm": null
+            },
+            "@permanent": true,
+            "@line": "1",
+            "@pos": "15",
+            "@errorCode": "SYN0002",
+            "@errorMessage": "Query operator expected.",
+            "@token": "this_is_not_valid"
+        }
+    }
+}

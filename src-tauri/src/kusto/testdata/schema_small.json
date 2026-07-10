@@ -1,0 +1,45 @@
+{
+  "Databases": {
+    "TestDB": {
+      "Name": "TestDB",
+      "MajorVersion": 5,
+      "MinorVersion": 0,
+      "DatabaseAccessMode": "ReadWrite",
+      "Tables": {
+        "Events": {
+          "Name": "Events",
+          "EntityType": "Table",
+          "Folder": "Raw",
+          "DocString": "Raw event stream",
+          "OrderedColumns": [
+            { "Name": "Timestamp", "Type": "System.DateTime", "CslType": "datetime" },
+            { "Name": "Name", "Type": "System.String", "CslType": "string" },
+            { "Name": "Count", "Type": "System.Int64", "CslType": "long" }
+          ]
+        },
+        "Users": {
+          "Name": "Users",
+          "EntityType": "Table",
+          "Folder": "",
+          "DocString": "",
+          "OrderedColumns": [
+            { "Name": "Id", "Type": "System.String", "CslType": "string" }
+          ]
+        }
+      },
+      "Functions": {
+        "CountEvents": {
+          "Name": "CountEvents",
+          "Folder": "Analytics",
+          "DocString": "Counts events",
+          "InputParameters": [],
+          "Body": "{ Events | count }",
+          "FunctionKind": "Unknown",
+          "OutputColumns": []
+        }
+      },
+      "ExternalTables": {},
+      "MaterializedViews": {}
+    }
+  }
+}
