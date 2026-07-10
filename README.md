@@ -34,6 +34,11 @@ reuses your local **Azure CLI** session — no app registration or client ID req
   pie, scatter, and time charts. Axes and numeric series are auto-detected from
   column types (datetime → time chart), and you can override the X column and
   which series to plot. Large results are capped for responsiveness.
+- **Data-view tools.** Work with the loaded result set directly in the grid:
+  toggle **hide empty columns**, toggle **wrap text** for long values, and
+  **explore column values** — a per-column popover (the chart icon in the
+  header) showing the value distribution computed client-side: top values with
+  counts, percentages, and mini bars, plus distinct- and null-counts.
 - **Share.** One click to copy to the clipboard: the **query** (as KQL), the
   **results** (as a Markdown table, **JSON**, **TSV**, or a KQL **`datatable()`**
   literal you can paste straight back into a query), or the **query + results**.
