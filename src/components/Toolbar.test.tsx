@@ -8,6 +8,7 @@ vi.mock("../lib/tauri", () => ({
   getSchema: vi.fn(),
   formatShare: vi.fn(),
   exportCsv: vi.fn(),
+  exportResult: vi.fn(),
 }));
 
 import { makeConnection } from "../lib/connection";

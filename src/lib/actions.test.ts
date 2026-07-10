@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./tauri", () => ({
   formatShare: vi.fn(),
   exportCsv: vi.fn(),
+  exportResult: vi.fn(),
   runQuery: vi.fn(),
   listDatabases: vi.fn(),
   getSchema: vi.fn(),
@@ -18,7 +19,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { baseDataState, useAppStore } from "../store/appStore";
 import { useToastStore } from "../store/toast";
 import type { QueryResponse } from "../types/kusto";
-import { copyShare, defaultFileName, exportResultCsv } from "./actions";
+import { copyShare, defaultFileName, exportResult } from "./actions";
 import * as api from "./tauri";
 
 const mockApi = vi.mocked(api);
@@ -61,6 +62,28 @@ describe("copyShare", () => {
     expect(mockWriteText).not.toHaveBeenCalled();
   });
 
+  it("copies results as a datatable() literal", async () => {
+    useAppStore.setState({ query: "q", result: RESULT });
+    mockApi.formatShare.mockResolvedValue("datatable (n: long) [\n    1,\n]");
+
+    await copyShare("datatable");
+
+    expect(mockApi.formatShare).toHaveBeenCalledWith({
+      mode: "datatable",
+      query: "q",
+      result: RESULT,
+    });
+    expect(mockWriteText).toHaveBeenCalledWith("datatable (n: long) [\n    1,\n]");
+    expect(useToastStore.getState().toasts[0].kind).toBe("success");
+  });
+
+  it("does nothing for json mode without a result", async () => {
+    useAppStore.setState({ query: "q", result: null });
+    await copyShare("json");
+    expect(mockApi.formatShare).not.toHaveBeenCalled();
+    expect(mockWriteText).not.toHaveBeenCalled();
+  });
+
   it("surfaces errors as an error toast", async () => {
     useAppStore.setState({ query: "q", result: RESULT });
     mockApi.formatShare.mockRejectedValue({ kind: "io", message: "boom" });
@@ -72,39 +95,59 @@ describe("copyShare", () => {
   });
 });
 
-describe("exportResultCsv", () => {
-  it("writes the result to the chosen path", async () => {
+describe("exportResult", () => {
+  it("writes the result to the chosen path with the CSV format", async () => {
     useAppStore.setState({ result: RESULT });
     mockSave.mockResolvedValue("/tmp/out.csv");
-    mockApi.exportCsv.mockResolvedValue(undefined);
+    mockApi.exportResult.mockResolvedValue(undefined);
 
-    await exportResultCsv();
+    await exportResult("csv");
 
-    expect(mockApi.exportCsv).toHaveBeenCalledWith({
+    expect(mockApi.exportResult).toHaveBeenCalledWith({
       path: "/tmp/out.csv",
+      format: "csv",
       result: RESULT,
     });
     expect(useToastStore.getState().toasts[0].kind).toBe("success");
   });
 
+  it("passes the JSON format through to the backend", async () => {
+    useAppStore.setState({ result: RESULT });
+    mockSave.mockResolvedValue("/tmp/out.json");
+    mockApi.exportResult.mockResolvedValue(undefined);
+
+    await exportResult("json");
+
+    expect(mockApi.exportResult).toHaveBeenCalledWith({
+      path: "/tmp/out.json",
+      format: "json",
+      result: RESULT,
+    });
+  });
+
   it("does nothing when there is no result", async () => {
     useAppStore.setState({ result: null });
-    await exportResultCsv();
+    await exportResult("tsv");
     expect(mockSave).not.toHaveBeenCalled();
   });
 
   it("does nothing when the save dialog is cancelled", async () => {
     useAppStore.setState({ result: RESULT });
     mockSave.mockResolvedValue(null);
-    await exportResultCsv();
-    expect(mockApi.exportCsv).not.toHaveBeenCalled();
+    await exportResult("csv");
+    expect(mockApi.exportResult).not.toHaveBeenCalled();
   });
 });
 
 describe("defaultFileName", () => {
-  it("includes connection and database and a .csv extension", () => {
+  it("includes connection and database and a .csv extension by default", () => {
     const name = defaultFileName("help", "Samples");
     expect(name).toMatch(/^kusto-help-Samples-.*\.csv$/);
+  });
+
+  it("uses the requested format extension", () => {
+    expect(defaultFileName("help", "Samples", "json")).toMatch(/\.json$/);
+    expect(defaultFileName("help", "Samples", "tsv")).toMatch(/\.tsv$/);
   });
 
   it("omits missing parts", () => {

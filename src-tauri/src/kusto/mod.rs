@@ -8,6 +8,6 @@ pub mod parser;
 pub mod schema;
 
 pub use client::{HttpTransport, KustoClient, ReqwestTransport};
-pub use format::ShareMode;
+pub use format::{ExportFormat, ShareMode};
 pub use model::{KustoColumn, KustoResultSet};
 pub use schema::{ColumnSchema, DatabaseSchema, FunctionSchema, TableSchema};
