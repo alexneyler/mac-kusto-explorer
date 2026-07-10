@@ -208,10 +208,51 @@ describe("ConnectionsSidebar schema filter", () => {
       "storm",
     );
 
-    expect(screen.getByText("StormEvents")).toBeInTheDocument();
+    // Matching labels are split by the highlight; assert via the <mark> runs.
+    // StormEvents (table) and MyStormFn (function) each contain "Storm".
+    expect(
+      screen.getAllByText("Storm", { selector: "mark" }).length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Events")).toBeInTheDocument();
     expect(screen.queryByText("PopulationData")).not.toBeInTheDocument();
-    // Function whose name matches stays visible too.
-    expect(screen.getByText("MyStormFn")).toBeInTheDocument();
+  });
+
+  it("highlights the matching substring in labels", async () => {
+    seedActiveWithSchema();
+    render(<ConnectionsSidebar />);
+
+    await userEvent.type(
+      screen.getByRole("searchbox", { name: /filter schema/i }),
+      "storm",
+    );
+
+    // The matched run is wrapped in a <mark>; the remainder is not.
+    const mark = screen.getAllByText("Storm", { selector: "mark" })[0];
+    expect(mark.tagName).toBe("MARK");
+    expect(screen.getByText("Events")).toBeInTheDocument();
+  });
+
+  it("shows a match count while filtering", async () => {
+    seedActiveWithSchema();
+    render(<ConnectionsSidebar />);
+
+    await userEvent.type(
+      screen.getByRole("searchbox", { name: /filter schema/i }),
+      "storm",
+    );
+
+    // StormEvents (table) + MyStormFn (function) = 2 matches.
+    expect(screen.getByText("2 matches")).toBeInTheDocument();
+  });
+
+  it("focuses the search box on Ctrl+F", async () => {
+    seedActive();
+    render(<ConnectionsSidebar />);
+    const box = screen.getByRole("searchbox", { name: /filter schema/i });
+    expect(box).not.toHaveFocus();
+
+    await userEvent.keyboard("{Control>}f{/Control}");
+    expect(box).toHaveFocus();
   });
 
   it("auto-expands a table to reveal a matching column", async () => {
@@ -224,9 +265,11 @@ describe("ConnectionsSidebar schema filter", () => {
     );
 
     // The matching table is revealed and expanded to show the matched column,
-    // without any user clicks.
+    // without any user clicks. The column label is highlighted (split), so
+    // assert via its <mark> run.
     expect(screen.getByText("StormEvents")).toBeInTheDocument();
-    expect(screen.getByText("DeathsDirect")).toBeInTheDocument();
+    expect(screen.getByText("Deaths", { selector: "mark" })).toBeInTheDocument();
+    expect(screen.getByText("Direct")).toBeInTheDocument();
     expect(screen.queryByText("PopulationData")).not.toBeInTheDocument();
   });
 
@@ -236,12 +279,27 @@ describe("ConnectionsSidebar schema filter", () => {
 
     const box = screen.getByRole("searchbox", { name: /filter schema/i });
     await userEvent.type(box, "zzz-nothing");
-    expect(screen.getByText(/No schema objects match/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/No matching entities/i).length).toBeGreaterThan(
+      0,
+    );
     expect(screen.queryByText("Samples")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /clear filter/i }));
     expect(screen.getByText("Samples")).toBeInTheDocument();
     expect(box).toHaveValue("");
+  });
+
+  it("clears the filter with the Escape key", async () => {
+    seedActiveWithSchema();
+    render(<ConnectionsSidebar />);
+
+    const box = screen.getByRole("searchbox", { name: /filter schema/i });
+    await userEvent.type(box, "zzz-nothing");
+    expect(screen.queryByText("Samples")).not.toBeInTheDocument();
+
+    await userEvent.type(box, "{Escape}");
+    expect(box).toHaveValue("");
+    expect(screen.getByText("Samples")).toBeInTheDocument();
   });
 
   it("does not trigger schema loads while filtering unloaded databases", async () => {
@@ -256,7 +314,9 @@ describe("ConnectionsSidebar schema filter", () => {
 
     // "storm" matches neither the connection nor the (name-only) database, and
     // the schema is unloaded — so nothing is shown and no fetch is made.
-    expect(screen.getByText(/No schema objects match/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/No matching entities/i).length).toBeGreaterThan(
+      0,
+    );
     expect(mockApi.getSchema).not.toHaveBeenCalled();
   });
 });

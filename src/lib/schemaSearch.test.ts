@@ -8,20 +8,23 @@ import type {
 import {
   connectionHasDescendantMatch,
   connectionVisible,
+  countMatches,
   databaseHasDescendantMatch,
   databaseVisible,
   filterColumns,
   functionMatches,
+  highlightSegments,
   isFiltering,
   matchesText,
   normalizeQuery,
   schemaHasMatch,
+  schemaMatchCount,
   tableMatches,
   tableSelfMatches,
   visibleColumns,
   visibleFunctions,
   visibleTables,
-} from "./schemaFilter";
+} from "./schemaSearch";
 
 const STORM: TableSchema = {
   name: "StormEvents",
@@ -202,5 +205,77 @@ describe("connection visibility", () => {
     expect(
       connectionVisible(conn("c1", "Help"), undefined, () => undefined, ""),
     ).toBe(true);
+  });
+});
+
+describe("highlightSegments", () => {
+  it("returns a single non-match segment when not filtering", () => {
+    expect(highlightSegments("StormEvents", "")).toEqual([
+      { text: "StormEvents", match: false },
+    ]);
+    expect(highlightSegments("StormEvents", "   ")).toEqual([
+      { text: "StormEvents", match: false },
+    ]);
+  });
+
+  it("splits around a single case-insensitive match", () => {
+    expect(highlightSegments("StormEvents", "storm")).toEqual([
+      { text: "Storm", match: true },
+      { text: "Events", match: false },
+    ]);
+  });
+
+  it("highlights every occurrence", () => {
+    expect(highlightSegments("aXaXa", "a")).toEqual([
+      { text: "a", match: true },
+      { text: "X", match: false },
+      { text: "a", match: true },
+      { text: "X", match: false },
+      { text: "a", match: true },
+    ]);
+  });
+
+  it("returns a non-match segment when there is no occurrence", () => {
+    expect(highlightSegments("StormEvents", "zzz")).toEqual([
+      { text: "StormEvents", match: false },
+    ]);
+  });
+
+  it("reconstructs the original text from the segments", () => {
+    const segments = highlightSegments("PopulationData", "at");
+    expect(segments.map((s) => s.text).join("")).toBe("PopulationData");
+    expect(segments.some((s) => s.match)).toBe(true);
+  });
+});
+
+describe("match counting", () => {
+  const lookup = (db: string) => (db === "Samples" ? SCHEMA : undefined);
+
+  it("schemaMatchCount counts matching tables, columns, and functions", () => {
+    // "storm": table StormEvents (name) + function MyStormFn (name) = 2.
+    expect(schemaMatchCount(SCHEMA, "storm")).toBe(2);
+    // "state": one column in each of the two tables = 2.
+    expect(schemaMatchCount(SCHEMA, "state")).toBe(2);
+    expect(schemaMatchCount(SCHEMA, "nonexistent")).toBe(0);
+    expect(schemaMatchCount(SCHEMA, "")).toBe(0);
+  });
+
+  it("countMatches aggregates database names plus loaded schema matches", () => {
+    const conns = [{ databases: ["Samples"], lookup }];
+    // "samp" → database name "Samples" matches = 1 (schema has no match).
+    expect(countMatches(conns, "samp")).toBe(1);
+    // "storm" → 0 db names + 2 schema matches.
+    expect(countMatches(conns, "storm")).toBe(2);
+  });
+
+  it("countMatches ignores unloaded schemas and inactive queries", () => {
+    const conns = [{ databases: ["Samples"], lookup: () => undefined }];
+    // Schema unloaded → only the database name can match; "storm" matches none.
+    expect(countMatches(conns, "storm")).toBe(0);
+    expect(countMatches(conns, "")).toBe(0);
+    // Undefined database list contributes nothing.
+    expect(
+      countMatches([{ databases: undefined, lookup: () => undefined }], "x"),
+    ).toBe(0);
   });
 });

@@ -11,22 +11,51 @@ import {
   Table2,
   X,
 } from "lucide-react";
-import { type MouseEvent, type ReactNode, useEffect, useState } from "react";
+import {
+  type MouseEvent,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import {
   connectionHasDescendantMatch,
   connectionVisible,
+  countMatches,
   databaseHasDescendantMatch,
   databaseVisible,
+  highlightSegments,
   isFiltering,
   type SchemaLookup,
   tableSelfMatches,
   visibleColumns,
   visibleFunctions,
   visibleTables,
-} from "../lib/schemaFilter";
+} from "../lib/schemaSearch";
 import { schemaKey, useAppStore } from "../store/appStore";
 import type { Connection, TableSchema } from "../types/kusto";
+
+/** Render a label with the query's matching substrings highlighted. */
+function HighlightedLabel({ text, query }: { text: string; query: string }) {
+  const segments = highlightSegments(text, query);
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.match ? (
+          <mark
+            key={i}
+            className="rounded-sm bg-[var(--color-bg-active)] font-semibold text-[var(--color-accent)]"
+          >
+            {seg.text}
+          </mark>
+        ) : (
+          <span key={i}>{seg.text}</span>
+        ),
+      )}
+    </>
+  );
+}
 
 /** A single indented tree row with an optional expand chevron. */
 function TreeRow({
@@ -35,6 +64,7 @@ function TreeRow({
   expanded,
   icon,
   label,
+  highlightQuery,
   hint,
   active,
   actions,
@@ -46,6 +76,7 @@ function TreeRow({
   expanded?: boolean;
   icon: ReactNode;
   label: string;
+  highlightQuery?: string;
   hint?: string;
   active?: boolean;
   actions?: ReactNode;
@@ -76,7 +107,11 @@ function TreeRow({
       </span>
       <span className="flex shrink-0 items-center">{icon}</span>
       <span className="min-w-0 flex-1 truncate text-[var(--color-text)]">
-        {label}
+        {highlightQuery ? (
+          <HighlightedLabel text={label} query={highlightQuery} />
+        ) : (
+          label
+        )}
       </span>
       {hint && (
         <span className="truncate pl-2 text-[10px] text-[var(--color-text-faint)]">
@@ -151,6 +186,7 @@ function TableNode({
         expanded={showColumns}
         icon={<Table2 size={13} className="text-[var(--color-accent)]" />}
         label={table.name}
+        highlightQuery={filter}
         hint={table.folder ?? undefined}
         onClick={() => setExpanded((v) => !v)}
         onDoubleClick={() => appendToQuery(table.name)}
@@ -162,6 +198,7 @@ function TableNode({
             depth={depth + 1}
             icon={<Columns3 size={12} className="text-[var(--color-text-faint)]" />}
             label={col.name}
+            highlightQuery={filter}
             hint={col.type}
           />
         ))}
@@ -224,6 +261,7 @@ function DatabaseNode({
         active={isActive}
         icon={<Database size={13} className="text-[var(--color-success)]" />}
         label={database}
+        highlightQuery={filter}
         actions={
           <RefreshButton
             label={`Refresh ${database} schema`}
@@ -258,6 +296,7 @@ function DatabaseNode({
                     />
                   }
                   label={fn.name}
+                  highlightQuery={filter}
                   hint={fn.folder ?? undefined}
                 />
               ))}
@@ -328,6 +367,7 @@ function ConnectionNode({ conn, filter }: { conn: Connection; filter: string }) 
         active={activeConnectionId === conn.id}
         icon={<Server size={13} className="text-[var(--color-accent)]" />}
         label={conn.name}
+        highlightQuery={filter}
         hint={conn.tenant ? "tenant" : undefined}
         actions={
           <RefreshButton
@@ -368,10 +408,15 @@ function ConnectionNode({ conn, filter }: { conn: Connection; filter: string }) 
 function SchemaSearch({
   value,
   onChange,
+  matchCount,
+  inputRef,
 }: {
   value: string;
   onChange: (next: string) => void;
+  matchCount: number;
+  inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
+  const filtering = isFiltering(value);
   return (
     <div className="border-b border-[var(--color-border)] px-2 py-1.5">
       <div className="relative flex items-center">
@@ -380,6 +425,7 @@ function SchemaSearch({
           className="pointer-events-none absolute left-2 text-[var(--color-text-faint)]"
         />
         <input
+          ref={inputRef}
           type="text"
           role="searchbox"
           aria-label="Filter schema"
@@ -387,13 +433,19 @@ function SchemaSearch({
           spellCheck={false}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && value !== "") {
+              e.preventDefault();
+              onChange("");
+            }
+          }}
           className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] py-1 pl-6 pr-6 text-xs text-[var(--color-text)] placeholder:text-[var(--color-text-faint)] focus:border-[var(--color-accent)] focus:outline-none"
         />
         {value !== "" && (
           <button
             type="button"
             aria-label="Clear filter"
-            title="Clear filter"
+            title="Clear filter (Esc)"
             onClick={() => onChange("")}
             className="absolute right-1.5 flex h-4 w-4 items-center justify-center rounded text-[var(--color-text-faint)] hover:text-[var(--color-text)]"
           >
@@ -401,6 +453,13 @@ function SchemaSearch({
           </button>
         )}
       </div>
+      {filtering && (
+        <div className="px-1 pt-1 text-[10px] text-[var(--color-text-faint)]">
+          {matchCount === 0
+            ? "No matching entities"
+            : `${matchCount} ${matchCount === 1 ? "match" : "matches"}`}
+        </div>
+      )}
     </div>
   );
 }
@@ -410,18 +469,41 @@ export function ConnectionsSidebar() {
   const databasesByConn = useAppStore((s) => s.databasesByConn);
   const schemaByKey = useAppStore((s) => s.schemaByKey);
   const [filter, setFilter] = useState("");
+  const searchRef = useRef<HTMLInputElement | null>(null);
+
+  // Ctrl+F / ⌘+F focuses the schema filter (scoped to the app window).
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+        if (!searchRef.current) return;
+        e.preventDefault();
+        searchRef.current.focus();
+        searchRef.current.select();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const filtering = isFiltering(filter);
+  const lookupFor =
+    (connId: string): SchemaLookup =>
+    (db) =>
+      schemaByKey[schemaKey(connId, db)];
   const visibleConnections = filtering
     ? connections.filter((c) =>
-        connectionVisible(
-          c,
-          databasesByConn[c.id],
-          (db) => schemaByKey[schemaKey(c.id, db)],
-          filter,
-        ),
+        connectionVisible(c, databasesByConn[c.id], lookupFor(c.id), filter),
       )
     : connections;
+  const matchCount = filtering
+    ? countMatches(
+        connections.map((c) => ({
+          databases: databasesByConn[c.id],
+          lookup: lookupFor(c.id),
+        })),
+        filter,
+      )
+    : 0;
 
   return (
     <div className="flex h-full flex-col bg-[var(--color-bg-panel)]">
@@ -429,7 +511,12 @@ export function ConnectionsSidebar() {
         Connections
       </div>
       {connections.length > 0 && (
-        <SchemaSearch value={filter} onChange={setFilter} />
+        <SchemaSearch
+          value={filter}
+          onChange={setFilter}
+          matchCount={matchCount}
+          inputRef={searchRef}
+        />
       )}
       <div role="tree" className="flex-1 overflow-auto py-1">
         {connections.length === 0 ? (
@@ -440,7 +527,7 @@ export function ConnectionsSidebar() {
           </div>
         ) : filtering && visibleConnections.length === 0 ? (
           <div className="px-3 py-4 text-xs text-[var(--color-text-faint)]">
-            No schema objects match “{filter.trim()}”.
+            No matching entities.
           </div>
         ) : (
           visibleConnections.map((c) => (

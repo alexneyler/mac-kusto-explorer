@@ -1,5 +1,6 @@
-// Pure helpers for filtering the schema tree by a search query. Kept free of
-// React/store so the matching rules can be unit-tested in isolation.
+// Pure helpers for searching/filtering the schema tree by a query. Kept free of
+// React/store so the matching, highlighting, and counting rules can be
+// unit-tested in isolation.
 
 import type {
   ColumnSchema,
@@ -150,4 +151,86 @@ export function connectionHasDescendantMatch(
 ): boolean {
   if (!isFiltering(query) || !databases) return false;
   return databases.some((db) => databaseVisible(db, lookup(db), query));
+}
+
+/** A run of text plus whether it is part of a query match, for highlighting. */
+export interface HighlightSegment {
+  text: string;
+  match: boolean;
+}
+
+/**
+ * Split `text` into alternating non-match / match segments for every
+ * (case-insensitive) occurrence of `query`. When the query is inactive or has
+ * no occurrence, a single non-match segment covering the whole text is
+ * returned, so callers can always render the segments uniformly.
+ */
+export function highlightSegments(
+  text: string,
+  query: string,
+): HighlightSegment[] {
+  const q = normalizeQuery(query);
+  if (q === "" || text === "") return [{ text, match: false }];
+
+  const lower = text.toLowerCase();
+  const segments: HighlightSegment[] = [];
+  let cursor = 0;
+  let index = lower.indexOf(q, cursor);
+  while (index !== -1) {
+    if (index > cursor) {
+      segments.push({ text: text.slice(cursor, index), match: false });
+    }
+    segments.push({ text: text.slice(index, index + q.length), match: true });
+    cursor = index + q.length;
+    index = lower.indexOf(q, cursor);
+  }
+  if (cursor < text.length) {
+    segments.push({ text: text.slice(cursor), match: false });
+  }
+  return segments;
+}
+
+/**
+ * Count matching entities within a loaded schema: tables (by name/folder),
+ * columns (by name/type), and functions (by name/folder).
+ */
+export function schemaMatchCount(schema: DatabaseSchema, query: string): number {
+  if (!isFiltering(query)) return 0;
+  let count = 0;
+  for (const table of schema.tables) {
+    if (tableSelfMatches(table, query)) count += 1;
+    count += filterColumns(table.columns, query).length;
+  }
+  for (const fn of schema.functions) {
+    if (functionMatches(fn, query)) count += 1;
+  }
+  return count;
+}
+
+/** A connection's databases and their (possibly unloaded) schemas. */
+export interface ConnectionSchemas {
+  databases: string[] | undefined;
+  lookup: SchemaLookup;
+}
+
+/**
+ * Total number of matching entities across all connections: matching database
+ * names plus matching tables/columns/functions in every loaded schema. Only
+ * loaded data is counted — filtering never forces new loads.
+ */
+export function countMatches(
+  connections: ConnectionSchemas[],
+  query: string,
+): number {
+  if (!isFiltering(query)) return 0;
+  let count = 0;
+  for (const { databases, lookup } of connections) {
+    if (!databases) continue;
+    for (const db of databases) {
+      if (matchesText(db, query)) count += 1;
+      const schema = lookup(db);
+      if (schema) count += schemaMatchCount(schema, query);
+    }
+  }
+  return count;
 }
