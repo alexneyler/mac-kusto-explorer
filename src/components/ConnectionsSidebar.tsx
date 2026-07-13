@@ -5,6 +5,7 @@ import {
   Database,
   Folder,
   FunctionSquare,
+  Info,
   Loader2,
   RefreshCw,
   Search,
@@ -19,6 +20,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 
 import {
   connectionHasDescendantMatch,
@@ -78,6 +80,7 @@ function TreeRow({
   label,
   highlightQuery,
   hint,
+  inlineHint = true,
   active,
   actions,
   onClick,
@@ -90,48 +93,89 @@ function TreeRow({
   label: string;
   highlightQuery?: string;
   hint?: string;
+  inlineHint?: boolean;
   active?: boolean;
   actions?: ReactNode;
   onClick?: () => void;
   onDoubleClick?: () => void;
 }) {
+  const [tooltipPosition, setTooltipPosition] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+  const showHoverHint = Boolean(hint && !inlineHint);
+
+  function showTooltip(target: HTMLElement) {
+    const bounds = target.getBoundingClientRect();
+    setTooltipPosition({ left: bounds.right + 8, top: bounds.top - 4 });
+  }
+
   return (
-    <div
-      role="treeitem"
-      aria-expanded={expandable ? expanded : undefined}
-      aria-selected={active}
-      className={`group flex cursor-pointer select-none items-center gap-1 py-[3px] pr-2 text-xs hover:bg-[var(--color-bg-hover)] ${
-        active ? "bg-[var(--color-bg-active)]" : ""
-      }`}
-      style={{ paddingLeft: 6 + depth * 14 }}
-      onClick={onClick}
-      onDoubleClick={onDoubleClick}
-      title={hint}
-    >
-      <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-[var(--color-text-faint)]">
-        {expandable ? (
-          expanded ? (
-            <ChevronDown size={13} />
-          ) : (
-            <ChevronRight size={13} />
-          )
-        ) : null}
-      </span>
-      <span className="flex shrink-0 items-center">{icon}</span>
-      <span className="min-w-0 flex-1 truncate text-[var(--color-text)]">
-        {highlightQuery ? (
-          <HighlightedLabel text={label} query={highlightQuery} />
-        ) : (
-          label
-        )}
-      </span>
-      {hint && (
-        <span className="truncate pl-2 text-[10px] text-[var(--color-text-faint)]">
-          {hint}
+    <>
+      <div
+        role="treeitem"
+        aria-expanded={expandable ? expanded : undefined}
+        aria-selected={active}
+        className={`group flex cursor-pointer select-none items-center gap-1 py-[3px] pr-2 text-xs hover:bg-[var(--color-bg-hover)] ${
+          active ? "bg-[var(--color-bg-active)]" : ""
+        }`}
+        style={{ paddingLeft: 6 + depth * 14 }}
+        onClick={onClick}
+        onDoubleClick={onDoubleClick}
+        title={inlineHint ? hint : undefined}
+      >
+        <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-[var(--color-text-faint)]">
+          {expandable ? (
+            expanded ? (
+              <ChevronDown size={13} />
+            ) : (
+              <ChevronRight size={13} />
+            )
+          ) : null}
         </span>
-      )}
-      {actions && <span className="flex shrink-0 items-center">{actions}</span>}
-    </div>
+        <span className="flex shrink-0 items-center">{icon}</span>
+        <span className="min-w-0 flex-1 truncate text-[var(--color-text)]">
+          {highlightQuery ? (
+            <HighlightedLabel text={label} query={highlightQuery} />
+          ) : (
+            label
+          )}
+        </span>
+        {inlineHint && hint && (
+          <span className="truncate pl-2 text-[10px] text-[var(--color-text-faint)]">
+            {hint}
+          </span>
+        )}
+        {showHoverHint && (
+          <button
+            type="button"
+            aria-label={`${label} description`}
+            className="ml-auto flex h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--color-text-faint)] hover:text-[var(--color-text)] focus:text-[var(--color-text)] focus:outline-none"
+            onClick={(event) => event.stopPropagation()}
+            onDoubleClick={(event) => event.stopPropagation()}
+            onMouseEnter={(event) => showTooltip(event.currentTarget)}
+            onMouseLeave={() => setTooltipPosition(null)}
+            onFocus={(event) => showTooltip(event.currentTarget)}
+            onBlur={() => setTooltipPosition(null)}
+          >
+            <Info size={12} />
+          </button>
+        )}
+        {actions && <span className="flex shrink-0 items-center">{actions}</span>}
+      </div>
+      {tooltipPosition &&
+        hint &&
+        createPortal(
+          <div
+            role="tooltip"
+            className="pointer-events-none fixed z-[100] max-w-sm rounded border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-2 py-1.5 text-xs leading-relaxed text-[var(--color-text)] shadow-lg"
+            style={tooltipPosition}
+          >
+            {hint}
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 
@@ -200,6 +244,7 @@ function TableNode({
         label={table.name}
         highlightQuery={filter}
         hint={table.docString ?? undefined}
+        inlineHint={false}
         onClick={() => setExpanded((v) => !v)}
         onDoubleClick={() => appendToQuery(table.name)}
       />
@@ -236,6 +281,7 @@ function FunctionNode({
       label={fn.name}
       highlightQuery={filter}
       hint={fn.docString ?? undefined}
+      inlineHint={false}
     />
   );
 }

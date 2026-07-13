@@ -23,6 +23,7 @@ const SCHEMA: DatabaseSchema = {
   tables: [
     {
       name: "StormEvents",
+      docString: "Historical storm event records",
       columns: [
         { name: "State", type: "string" },
         { name: "DeathsDirect", type: "long" },
@@ -55,7 +56,13 @@ const SCHEMA: DatabaseSchema = {
       columns: [{ name: "BlobUri", type: "string" }],
     },
   ],
-  functions: [{ name: "MyStormFn", folder: "Analytics/Storm" }],
+  functions: [
+    {
+      name: "MyStormFn",
+      folder: "Analytics/Storm",
+      docString: "Returns matching storm events",
+    },
+  ],
 };
 
 beforeEach(() => {
@@ -114,6 +121,54 @@ describe("ConnectionsSidebar", () => {
     await userEvent.click(table);
     expect(await screen.findByText("State")).toBeInTheDocument();
     expect(screen.getByText("DeathsDirect")).toBeInTheDocument();
+  });
+
+  it("shows table descriptions only when hovering their info button", async () => {
+    seedActiveWithSchema();
+    render(<ConnectionsSidebar />);
+
+    await userEvent.click(screen.getByText("Samples"));
+    await userEvent.click(screen.getByText("Tables"));
+
+    const table = screen.getByText("StormEvents").closest('[role="treeitem"]');
+    const info = screen.getByRole("button", {
+      name: "StormEvents description",
+    });
+    expect(table).not.toHaveAttribute("title");
+    expect(
+      screen.queryByText("Historical storm event records"),
+    ).not.toBeInTheDocument();
+
+    await userEvent.hover(table!);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    await userEvent.hover(info);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      "Historical storm event records",
+    );
+
+    await userEvent.unhover(info);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  });
+
+  it("shows function descriptions only when hovering their info button", async () => {
+    seedActiveWithSchema();
+    render(<ConnectionsSidebar />);
+
+    await userEvent.click(screen.getByText("Samples"));
+    await userEvent.click(screen.getByText("Functions"));
+    await userEvent.click(screen.getByText("Analytics"));
+    await userEvent.click(screen.getByText("Storm"));
+
+    const info = screen.getByRole("button", {
+      name: "MyStormFn description",
+    });
+    expect(screen.queryByText("Returns matching storm events")).not.toBeInTheDocument();
+
+    await userEvent.hover(info);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      "Returns matching storm events",
+    );
   });
 
   it("double-clicking a table inserts its name into the query", async () => {
