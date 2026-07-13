@@ -30,16 +30,16 @@ import {
 } from "../lib/chart";
 import type { KustoResultSet } from "../types/kusto";
 
-// Concrete, colour-blind-friendly palette that reads well on the dark theme.
+// Colour-blind-friendly palette backed by theme-specific CSS tokens.
 const PALETTE = [
-  "#4c9aff",
-  "#46c17f",
-  "#e0a63c",
-  "#f2555a",
-  "#a78bfa",
-  "#22d3ee",
-  "#f472b6",
-  "#84cc16",
+  "var(--color-chart-1)",
+  "var(--color-chart-2)",
+  "var(--color-chart-3)",
+  "var(--color-chart-4)",
+  "var(--color-chart-5)",
+  "var(--color-chart-6)",
+  "var(--color-chart-7)",
+  "var(--color-chart-8)",
 ];
 
 const AXIS_TICK = { fill: "var(--color-text-muted)", fontSize: 11 };

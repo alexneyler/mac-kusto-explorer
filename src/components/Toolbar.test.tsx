@@ -14,6 +14,7 @@ vi.mock("../lib/tauri", () => ({
 import { makeConnection } from "../lib/connection";
 import * as api from "../lib/tauri";
 import { baseDataState, schemaKey, useAppStore } from "../store/appStore";
+import { useThemeStore } from "../store/themeStore";
 import { Toolbar } from "./Toolbar";
 
 const mockApi = vi.mocked(api);
@@ -21,6 +22,8 @@ const mockApi = vi.mocked(api);
 beforeEach(() => {
   localStorage.clear();
   useAppStore.setState(baseDataState());
+  useThemeStore.setState({ theme: "dark" });
+  document.documentElement.dataset.theme = "dark";
   vi.clearAllMocks();
 });
 
@@ -101,5 +104,16 @@ describe("Toolbar", () => {
     await userEvent.click(screen.getByLabelText("Add connection"));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByLabelText("Cluster URL")).toBeInTheDocument();
+  });
+
+  it("switches to light mode and persists the selection", async () => {
+    render(<Toolbar />);
+
+    await userEvent.click(screen.getByLabelText("Switch to light mode"));
+
+    expect(useThemeStore.getState().theme).toBe("light");
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(localStorage.getItem("kusto-explorer.theme")).toBe("light");
+    expect(screen.getByLabelText("Switch to dark mode")).toBeInTheDocument();
   });
 });

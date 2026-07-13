@@ -1,10 +1,11 @@
-import { Database, Play, Plus, Server } from "lucide-react";
+import { Database, Moon, Play, Plus, Server, Sun } from "lucide-react";
 import { useState } from "react";
 
 import {
   selectActiveConnection,
   useAppStore,
 } from "../store/appStore";
+import { useThemeStore } from "../store/themeStore";
 import { AddConnectionDialog } from "./AddConnectionDialog";
 import { ShareExportButtons } from "./ShareExportButtons";
 
@@ -20,6 +21,8 @@ export function Toolbar() {
   const setActiveConnection = useAppStore((s) => s.setActiveConnection);
   const setActiveDatabase = useAppStore((s) => s.setActiveDatabase);
   const runActiveQuery = useAppStore((s) => s.runActiveQuery);
+  const theme = useThemeStore((s) => s.theme);
+  const toggleTheme = useThemeStore((s) => s.toggleTheme);
 
   const databases = activeConnectionId
     ? (databasesByConn[activeConnectionId] ?? [])
@@ -81,6 +84,15 @@ export function Toolbar() {
       </div>
 
       <div className="flex-1" />
+
+      <button
+        className="btn px-2 py-1"
+        aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+        title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+        onClick={toggleTheme}
+      >
+        {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
+      </button>
 
       <ShareExportButtons />
 
