@@ -68,6 +68,14 @@ To produce a distributable bundle (e.g. a macOS `.app`/`.dmg`):
 npm run tauri build
 ```
 
+### Releases
+
+Every push to `main` runs the release workflow after the frontend and backend
+tests pass. It increments the latest `vX.Y.Z` tag's patch number, builds a
+universal macOS bundle for Apple Silicon and Intel, and publishes the bundle as
+a GitHub release. The workflow can also be started manually from the Actions
+tab.
+
 ### Try it against the public sample cluster
 
 1. Click **Add connection** and enter `https://help.kusto.windows.net`.
