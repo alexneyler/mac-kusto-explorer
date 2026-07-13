@@ -3,6 +3,7 @@ import {
   ChevronRight,
   Columns3,
   Database,
+  Folder,
   FunctionSquare,
   Loader2,
   RefreshCw,
@@ -30,11 +31,22 @@ import {
   type SchemaLookup,
   tableSelfMatches,
   visibleColumns,
+  visibleExternalTables,
   visibleFunctions,
+  visibleMaterializedViews,
   visibleTables,
 } from "../lib/schemaSearch";
+import {
+  groupByFolder,
+  type FolderEntity,
+  type SchemaFolder,
+} from "../lib/schemaFolders";
 import { schemaKey, useAppStore } from "../store/appStore";
-import type { Connection, TableSchema } from "../types/kusto";
+import type {
+  Connection,
+  FunctionSchema,
+  TableSchema,
+} from "../types/kusto";
 
 /** Render a label with the query's matching substrings highlighted. */
 function HighlightedLabel({ text, query }: { text: string; query: string }) {
@@ -187,7 +199,7 @@ function TableNode({
         icon={<Table2 size={13} className="text-[var(--color-accent)]" />}
         label={table.name}
         highlightQuery={filter}
-        hint={table.folder ?? undefined}
+        hint={table.docString ?? undefined}
         onClick={() => setExpanded((v) => !v)}
         onDoubleClick={() => appendToQuery(table.name)}
       />
@@ -202,6 +214,119 @@ function TableNode({
             hint={col.type}
           />
         ))}
+    </div>
+  );
+}
+
+function FunctionNode({
+  fn,
+  depth,
+  filter,
+}: {
+  fn: FunctionSchema;
+  depth: number;
+  filter: string;
+}) {
+  return (
+    <TreeRow
+      depth={depth}
+      icon={
+        <FunctionSquare size={13} className="text-[var(--color-warning)]" />
+      }
+      label={fn.name}
+      highlightQuery={filter}
+      hint={fn.docString ?? undefined}
+    />
+  );
+}
+
+function SchemaFolderNode<T extends FolderEntity>({
+  folder,
+  depth,
+  filter,
+  renderEntity,
+}: {
+  folder: SchemaFolder<T>;
+  depth: number;
+  filter: string;
+  renderEntity: (entity: T, depth: number) => ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const showChildren = isFiltering(filter) || expanded;
+
+  return (
+    <div role="group">
+      <TreeRow
+        depth={depth}
+        expandable
+        expanded={showChildren}
+        icon={<Folder size={13} className="text-[var(--color-text-muted)]" />}
+        label={folder.name}
+        highlightQuery={filter}
+        onClick={() => setExpanded((value) => !value)}
+      />
+      {showChildren && (
+        <div role="group">
+          {folder.folders.map((child) => (
+            <SchemaFolderNode
+              key={child.path}
+              folder={child}
+              depth={depth + 1}
+              filter={filter}
+              renderEntity={renderEntity}
+            />
+          ))}
+          {folder.entities.map((entity) => renderEntity(entity, depth + 1))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EntityCategoryNode<T extends FolderEntity>({
+  label,
+  entities,
+  depth,
+  filter,
+  renderEntity,
+}: {
+  label: string;
+  entities: T[];
+  depth: number;
+  filter: string;
+  renderEntity: (entity: T, depth: number) => ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const filtering = isFiltering(filter);
+  const showChildren = filtering ? entities.length > 0 : expanded;
+  const grouped = groupByFolder(entities);
+
+  if (filtering && entities.length === 0) return null;
+
+  return (
+    <div role="group">
+      <TreeRow
+        depth={depth}
+        expandable={entities.length > 0}
+        expanded={showChildren}
+        icon={<Folder size={13} className="text-[var(--color-accent)]" />}
+        label={label}
+        onClick={() => setExpanded((value) => !value)}
+      />
+      {showChildren && (
+        <div role="group">
+          {grouped.folders.map((folder) => (
+            <SchemaFolderNode
+              key={folder.path}
+              folder={folder}
+              depth={depth + 1}
+              filter={filter}
+              renderEntity={renderEntity}
+            />
+          ))}
+          {grouped.entities.map((entity) => renderEntity(entity, depth + 1))}
+        </div>
+      )}
     </div>
   );
 }
@@ -250,6 +375,10 @@ function DatabaseNode({
   }
 
   const tables = schema ? visibleTables(schema, filter) : [];
+  const materializedViews = schema
+    ? visibleMaterializedViews(schema, filter)
+    : [];
+  const externalTables = schema ? visibleExternalTables(schema, filter) : [];
   const functions = schema ? visibleFunctions(schema, filter) : [];
 
   return (
@@ -280,38 +409,66 @@ function DatabaseNode({
               <Spinner /> Loading schema…
             </div>
           )}
-          {tables.map((t) => (
-            <TableNode key={t.name} table={t} depth={depth + 1} filter={filter} />
-          ))}
-          {functions.length > 0 && (
+          {schema && (
             <>
-              {functions.map((fn) => (
-                <TreeRow
-                  key={fn.name}
-                  depth={depth + 1}
-                  icon={
-                    <FunctionSquare
-                      size={13}
-                      className="text-[var(--color-warning)]"
-                    />
-                  }
-                  label={fn.name}
-                  highlightQuery={filter}
-                  hint={fn.folder ?? undefined}
-                />
-              ))}
+              <EntityCategoryNode
+                label="Functions"
+                entities={functions}
+                depth={depth + 1}
+                filter={filter}
+                renderEntity={(fn, entityDepth) => (
+                  <FunctionNode
+                    key={fn.name}
+                    fn={fn}
+                    depth={entityDepth}
+                    filter={filter}
+                  />
+                )}
+              />
+              <EntityCategoryNode
+                label="Materialized views"
+                entities={materializedViews}
+                depth={depth + 1}
+                filter={filter}
+                renderEntity={(view, entityDepth) => (
+                  <TableNode
+                    key={view.name}
+                    table={view}
+                    depth={entityDepth}
+                    filter={filter}
+                  />
+                )}
+              />
+              <EntityCategoryNode
+                label="Tables"
+                entities={tables}
+                depth={depth + 1}
+                filter={filter}
+                renderEntity={(table, entityDepth) => (
+                  <TableNode
+                    key={table.name}
+                    table={table}
+                    depth={entityDepth}
+                    filter={filter}
+                  />
+                )}
+              />
+              <EntityCategoryNode
+                label="External tables"
+                entities={externalTables}
+                depth={depth + 1}
+                filter={filter}
+                renderEntity={(table, entityDepth) => (
+                  <TableNode
+                    key={table.name}
+                    table={table}
+                    depth={entityDepth}
+                    filter={filter}
+                  />
+                )}
+              />
             </>
           )}
-          {schema &&
-            schema.tables.length === 0 &&
-            schema.functions.length === 0 && (
-              <div
-                className="py-1 text-[11px] text-[var(--color-text-faint)]"
-                style={{ paddingLeft: 6 + (depth + 1) * 14 }}
-              >
-                Empty database
-              </div>
-            )}
         </div>
       )}
     </div>

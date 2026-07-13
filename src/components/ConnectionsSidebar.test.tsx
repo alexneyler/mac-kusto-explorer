@@ -35,8 +35,27 @@ const SCHEMA: DatabaseSchema = {
         { name: "Population", type: "long" },
       ],
     },
+    {
+      name: "NestedTelemetry",
+      folder: "CCM/copilot",
+      columns: [{ name: "Payload", type: "dynamic" }],
+    },
   ],
-  functions: [{ name: "MyStormFn" }],
+  materializedViews: [
+    {
+      name: "DailySummary",
+      folder: "Reporting/Daily",
+      columns: [{ name: "Day", type: "datetime" }],
+    },
+  ],
+  externalTables: [
+    {
+      name: "ArchivedData",
+      folder: "Archive\\Cold",
+      columns: [{ name: "BlobUri", type: "string" }],
+    },
+  ],
+  functions: [{ name: "MyStormFn", folder: "Analytics/Storm" }],
 };
 
 beforeEach(() => {
@@ -84,7 +103,10 @@ describe("ConnectionsSidebar", () => {
     await userEvent.click(screen.getByText("Samples"));
     expect(useAppStore.getState().activeDatabase).toBe("Samples");
 
-    // Table appears once the schema resolves.
+    // Category appears once the schema resolves.
+    await userEvent.click(await screen.findByText("Tables"));
+
+    // Table appears once its category is expanded.
     const table = await screen.findByText("StormEvents");
     expect(table).toBeInTheDocument();
 
@@ -101,10 +123,37 @@ describe("ConnectionsSidebar", () => {
     render(<ConnectionsSidebar />);
 
     await userEvent.click(screen.getByText("Samples"));
+    await userEvent.click(await screen.findByText("Tables"));
     const table = await screen.findByText("StormEvents");
     await userEvent.dblClick(table);
 
     expect(useAppStore.getState().query).toContain("StormEvents");
+  });
+
+  it("shows ADX entity categories and nested schema folders", async () => {
+    seedActiveWithSchema();
+    render(<ConnectionsSidebar />);
+
+    await userEvent.click(screen.getByText("Samples"));
+    expect(screen.getByText("Functions")).toBeInTheDocument();
+    expect(screen.getByText("Materialized views")).toBeInTheDocument();
+    expect(screen.getByText("Tables")).toBeInTheDocument();
+    expect(screen.getByText("External tables")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Tables"));
+    await userEvent.click(screen.getByText("CCM"));
+    await userEvent.click(screen.getByText("copilot"));
+    expect(screen.getByText("NestedTelemetry")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Materialized views"));
+    await userEvent.click(screen.getByText("Reporting"));
+    await userEvent.click(screen.getByText("Daily"));
+    expect(screen.getByText("DailySummary")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("External tables"));
+    await userEvent.click(screen.getByText("Archive"));
+    await userEvent.click(screen.getByText("Cold"));
+    expect(screen.getByText("ArchivedData")).toBeInTheDocument();
   });
 
   it("auto-loads databases for the persisted active connection on mount", async () => {
@@ -200,6 +249,7 @@ describe("ConnectionsSidebar schema filter", () => {
 
     // Both tables visible once the Samples database is expanded.
     await userEvent.click(screen.getByText("Samples"));
+    await userEvent.click(screen.getByText("Tables"));
     expect(await screen.findByText("StormEvents")).toBeInTheDocument();
     expect(screen.getByText("PopulationData")).toBeInTheDocument();
 

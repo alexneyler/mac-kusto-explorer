@@ -24,7 +24,7 @@ export interface ColumnSchema {
   type: string;
 }
 
-/** A table (or view) with ordered columns. */
+/** A table-like entity with ordered columns. */
 export interface TableSchema {
   name: string;
   folder?: string;
@@ -39,10 +39,12 @@ export interface FunctionSchema {
   docString?: string;
 }
 
-/** A database's tables and functions, sorted for stable display. */
+/** A database's entities, sorted within each category for stable display. */
 export interface DatabaseSchema {
   name: string;
   tables: TableSchema[];
+  materializedViews: TableSchema[];
+  externalTables: TableSchema[];
   functions: FunctionSchema[];
 }
 

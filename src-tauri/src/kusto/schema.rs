@@ -17,7 +17,7 @@ pub struct ColumnSchema {
     pub column_type: String,
 }
 
-/// A table (or view) with its ordered columns.
+/// A table-like entity with its ordered columns.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TableSchema {
     pub name: String,
@@ -38,11 +38,15 @@ pub struct FunctionSchema {
     pub doc_string: Option<String>,
 }
 
-/// A database's tables and functions, sorted for stable display.
+/// A database's entities, sorted within each category for stable display.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DatabaseSchema {
     pub name: String,
     pub tables: Vec<TableSchema>,
+    #[serde(rename = "materializedViews")]
+    pub materialized_views: Vec<TableSchema>,
+    #[serde(rename = "externalTables")]
+    pub external_tables: Vec<TableSchema>,
     pub functions: Vec<FunctionSchema>,
 }
 
@@ -89,39 +93,9 @@ pub fn parse_show_schema(raw: &Value, database: &str) -> Result<DatabaseSchema> 
         .unwrap_or(database)
         .to_string();
 
-    let mut tables = Vec::new();
-    if let Some(tbls) = db.get("Tables").and_then(Value::as_object) {
-        for (table_key, table) in tbls {
-            let columns = table
-                .get("OrderedColumns")
-                .and_then(Value::as_array)
-                .map(|cols| {
-                    cols.iter()
-                        .map(|c| ColumnSchema {
-                            name: c.get("Name").and_then(Value::as_str).unwrap_or("").to_string(),
-                            column_type: c
-                                .get("CslType")
-                                .and_then(Value::as_str)
-                                .or_else(|| c.get("Type").and_then(Value::as_str))
-                                .unwrap_or("")
-                                .to_string(),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            tables.push(TableSchema {
-                name: table
-                    .get("Name")
-                    .and_then(Value::as_str)
-                    .unwrap_or(table_key)
-                    .to_string(),
-                folder: non_empty(table.get("Folder")),
-                doc_string: non_empty(table.get("DocString")),
-                columns,
-            });
-        }
-    }
-    tables.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    let tables = parse_table_entities(db, "Tables");
+    let materialized_views = parse_table_entities(db, "MaterializedViews");
+    let external_tables = parse_table_entities(db, "ExternalTables");
 
     let mut functions = Vec::new();
     if let Some(funcs) = db.get("Functions").and_then(Value::as_object) {
@@ -142,8 +116,51 @@ pub fn parse_show_schema(raw: &Value, database: &str) -> Result<DatabaseSchema> 
     Ok(DatabaseSchema {
         name,
         tables,
+        materialized_views,
+        external_tables,
         functions,
     })
+}
+
+fn parse_table_entities(db: &Value, collection: &str) -> Vec<TableSchema> {
+    let mut entities = Vec::new();
+    if let Some(tables) = db.get(collection).and_then(Value::as_object) {
+        for (table_key, table) in tables {
+            let columns = table
+                .get("OrderedColumns")
+                .and_then(Value::as_array)
+                .map(|cols| {
+                    cols.iter()
+                        .map(|c| ColumnSchema {
+                            name: c
+                                .get("Name")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string(),
+                            column_type: c
+                                .get("CslType")
+                                .and_then(Value::as_str)
+                                .or_else(|| c.get("Type").and_then(Value::as_str))
+                                .unwrap_or("")
+                                .to_string(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            entities.push(TableSchema {
+                name: table
+                    .get("Name")
+                    .and_then(Value::as_str)
+                    .unwrap_or(table_key)
+                    .to_string(),
+                folder: non_empty(table.get("Folder")),
+                doc_string: non_empty(table.get("DocString")),
+                columns,
+            });
+        }
+    }
+    entities.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    entities
 }
 
 fn non_empty(v: Option<&Value>) -> Option<String> {
@@ -188,7 +205,11 @@ mod tests {
         assert_eq!(schema.name, "TestDB");
         // Tables sorted: Events, Users.
         assert_eq!(
-            schema.tables.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(),
+            schema
+                .tables
+                .iter()
+                .map(|t| t.name.as_str())
+                .collect::<Vec<_>>(),
             vec!["Events", "Users"]
         );
 
@@ -198,9 +219,18 @@ mod tests {
         assert_eq!(
             events.columns,
             vec![
-                ColumnSchema { name: "Timestamp".into(), column_type: "datetime".into() },
-                ColumnSchema { name: "Name".into(), column_type: "string".into() },
-                ColumnSchema { name: "Count".into(), column_type: "long".into() },
+                ColumnSchema {
+                    name: "Timestamp".into(),
+                    column_type: "datetime".into()
+                },
+                ColumnSchema {
+                    name: "Name".into(),
+                    column_type: "string".into()
+                },
+                ColumnSchema {
+                    name: "Count".into(),
+                    column_type: "long".into()
+                },
             ]
         );
 
@@ -212,6 +242,23 @@ mod tests {
         assert_eq!(schema.functions.len(), 1);
         assert_eq!(schema.functions[0].name, "CountEvents");
         assert_eq!(schema.functions[0].folder.as_deref(), Some("Analytics"));
+
+        assert_eq!(schema.materialized_views.len(), 1);
+        assert_eq!(schema.materialized_views[0].name, "DailyEvents");
+        assert_eq!(
+            schema.materialized_views[0].folder.as_deref(),
+            Some("Reporting/Daily")
+        );
+
+        assert_eq!(schema.external_tables.len(), 1);
+        assert_eq!(schema.external_tables[0].name, "ArchivedEvents");
+        assert_eq!(
+            schema.external_tables[0].columns,
+            vec![ColumnSchema {
+                name: "Timestamp".into(),
+                column_type: "datetime".into()
+            }]
+        );
     }
 
     #[test]

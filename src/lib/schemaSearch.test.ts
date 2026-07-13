@@ -22,7 +22,9 @@ import {
   tableMatches,
   tableSelfMatches,
   visibleColumns,
+  visibleExternalTables,
   visibleFunctions,
+  visibleMaterializedViews,
   visibleTables,
 } from "./schemaSearch";
 
@@ -47,6 +49,20 @@ const POP: TableSchema = {
 const SCHEMA: DatabaseSchema = {
   name: "Samples",
   tables: [STORM, POP],
+  materializedViews: [
+    {
+      name: "DailySummary",
+      folder: "Reporting/Daily",
+      columns: [{ name: "Day", type: "datetime" }],
+    },
+  ],
+  externalTables: [
+    {
+      name: "ArchivedData",
+      folder: "Archive/Cold",
+      columns: [{ name: "BlobUri", type: "string" }],
+    },
+  ],
   functions: [
     { name: "MyStormFn", folder: "Weather" },
     { name: "OtherFn" },
@@ -132,14 +148,24 @@ describe("schema-level matching", () => {
     expect(visibleFunctions(SCHEMA, "storm").map((f) => f.name)).toEqual([
       "MyStormFn",
     ]);
+    expect(
+      visibleMaterializedViews(SCHEMA, "report").map((view) => view.name),
+    ).toEqual(["DailySummary"]);
+    expect(
+      visibleExternalTables(SCHEMA, "archive").map((table) => table.name),
+    ).toEqual(["ArchivedData"]);
     // Inactive filter returns everything.
     expect(visibleTables(SCHEMA, "")).toHaveLength(2);
+    expect(visibleMaterializedViews(SCHEMA, "")).toHaveLength(1);
+    expect(visibleExternalTables(SCHEMA, "")).toHaveLength(1);
     expect(visibleFunctions(SCHEMA, "")).toHaveLength(2);
   });
 
   it("schemaHasMatch reflects any table or function match", () => {
     expect(schemaHasMatch(SCHEMA, "storm")).toBe(true);
     expect(schemaHasMatch(SCHEMA, "otherfn")).toBe(true);
+    expect(schemaHasMatch(SCHEMA, "dailysummary")).toBe(true);
+    expect(schemaHasMatch(SCHEMA, "bloburi")).toBe(true);
     expect(schemaHasMatch(SCHEMA, "nonexistent")).toBe(false);
     expect(schemaHasMatch(SCHEMA, "")).toBe(true);
   });

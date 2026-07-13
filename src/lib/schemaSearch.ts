@@ -77,8 +77,31 @@ export function visibleTables(
   schema: DatabaseSchema,
   query: string,
 ): TableSchema[] {
-  if (!isFiltering(query)) return schema.tables;
-  return schema.tables.filter((t) => tableMatches(t, query));
+  return visibleTableEntities(schema.tables, query);
+}
+
+/** Materialized views in a schema that should be shown for the query. */
+export function visibleMaterializedViews(
+  schema: DatabaseSchema,
+  query: string,
+): TableSchema[] {
+  return visibleTableEntities(schema.materializedViews, query);
+}
+
+/** External tables in a schema that should be shown for the query. */
+export function visibleExternalTables(
+  schema: DatabaseSchema,
+  query: string,
+): TableSchema[] {
+  return visibleTableEntities(schema.externalTables, query);
+}
+
+function visibleTableEntities(
+  entities: TableSchema[],
+  query: string,
+): TableSchema[] {
+  if (!isFiltering(query)) return entities;
+  return entities.filter((entity) => tableMatches(entity, query));
 }
 
 /** Functions in a schema that should be shown for the query. */
@@ -95,6 +118,8 @@ export function schemaHasMatch(schema: DatabaseSchema, query: string): boolean {
   if (!isFiltering(query)) return true;
   return (
     visibleTables(schema, query).length > 0 ||
+    visibleMaterializedViews(schema, query).length > 0 ||
+    visibleExternalTables(schema, query).length > 0 ||
     visibleFunctions(schema, query).length > 0
   );
 }
@@ -197,9 +222,15 @@ export function highlightSegments(
 export function schemaMatchCount(schema: DatabaseSchema, query: string): number {
   if (!isFiltering(query)) return 0;
   let count = 0;
-  for (const table of schema.tables) {
-    if (tableSelfMatches(table, query)) count += 1;
-    count += filterColumns(table.columns, query).length;
+  for (const entities of [
+    schema.tables,
+    schema.materializedViews,
+    schema.externalTables,
+  ]) {
+    for (const entity of entities) {
+      if (tableSelfMatches(entity, query)) count += 1;
+      count += filterColumns(entity.columns, query).length;
+    }
   }
   for (const fn of schema.functions) {
     if (functionMatches(fn, query)) count += 1;

@@ -46,7 +46,13 @@ describe("Toolbar", () => {
 
   it("selecting a database updates the active database", async () => {
     mockApi.getSchema.mockResolvedValue({
-      database: { name: "Samples", tables: [], functions: [] },
+      database: {
+        name: "Samples",
+        tables: [],
+        materializedViews: [],
+        externalTables: [],
+        functions: [],
+      },
       raw: {},
     });
     seedConnection();

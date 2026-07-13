@@ -93,7 +93,13 @@ describe("setActiveDatabase", () => {
   it("selects the database and loads its schema once", async () => {
     mockApi.listDatabases.mockResolvedValue(["Samples"]);
     mockApi.getSchema.mockResolvedValue({
-      database: { name: "Samples", tables: [], functions: [] },
+      database: {
+        name: "Samples",
+        tables: [],
+        materializedViews: [],
+        externalTables: [],
+        functions: [],
+      },
       raw: { Databases: {} },
     });
     const conn = useAppStore.getState().addConnection({ clusterUrl: "help" });
@@ -235,7 +241,13 @@ describe("query tabs", () => {
   it("keeps per-tab connection/database context isolated", async () => {
     mockApi.listDatabases.mockResolvedValue(["Samples", "Other"]);
     mockApi.getSchema.mockResolvedValue({
-      database: { name: "Samples", tables: [], functions: [] },
+      database: {
+        name: "Samples",
+        tables: [],
+        materializedViews: [],
+        externalTables: [],
+        functions: [],
+      },
       raw: {},
     });
     const conn = useAppStore.getState().addConnection({ clusterUrl: "help" });
@@ -385,7 +397,13 @@ describe("refresh (force reload)", () => {
     mockApi.getSchema.mockRejectedValue({ kind: "net", message: "down" });
     const conn = makeConn();
     const key = schemaKey(conn.id, "Samples");
-    const existing = { name: "Samples", tables: [], functions: [] };
+    const existing = {
+      name: "Samples",
+      tables: [],
+      materializedViews: [],
+      externalTables: [],
+      functions: [],
+    };
     useAppStore.setState({
       connections: [conn],
       schemaByKey: { [key]: existing },
@@ -397,13 +415,27 @@ describe("refresh (force reload)", () => {
   });
 
   it("bypasses the schema cache guard on a forced refresh", async () => {
-    const fresh = { name: "Samples", tables: [], functions: [] };
+    const fresh = {
+      name: "Samples",
+      tables: [],
+      materializedViews: [],
+      externalTables: [],
+      functions: [],
+    };
     mockApi.getSchema.mockResolvedValue({ database: fresh, raw: {} });
     const conn = makeConn();
     const key = schemaKey(conn.id, "Samples");
     useAppStore.setState({
       connections: [conn],
-      schemaByKey: { [key]: { name: "Samples", tables: [], functions: [] } },
+      schemaByKey: {
+        [key]: {
+          name: "Samples",
+          tables: [],
+          materializedViews: [],
+          externalTables: [],
+          functions: [],
+        },
+      },
     });
     await useAppStore.getState().refreshSchema(conn.id, "Samples");
     expect(mockApi.getSchema).toHaveBeenCalledTimes(1);

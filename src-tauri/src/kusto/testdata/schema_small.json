@@ -38,8 +38,29 @@
           "OutputColumns": []
         }
       },
-      "ExternalTables": {},
-      "MaterializedViews": {}
+      "ExternalTables": {
+        "ArchivedEvents": {
+          "Name": "ArchivedEvents",
+          "EntityType": "ExternalTable",
+          "Folder": "Archive\\Cold",
+          "DocString": "Historical events",
+          "OrderedColumns": [
+            { "Name": "Timestamp", "Type": "System.DateTime", "CslType": "datetime" }
+          ]
+        }
+      },
+      "MaterializedViews": {
+        "DailyEvents": {
+          "Name": "DailyEvents",
+          "EntityType": "MaterializedView",
+          "Folder": "Reporting/Daily",
+          "DocString": "Daily event summary",
+          "OrderedColumns": [
+            { "Name": "Day", "Type": "System.DateTime", "CslType": "datetime" },
+            { "Name": "Count", "Type": "System.Int64", "CslType": "long" }
+          ]
+        }
+      }
     }
   }
 }
