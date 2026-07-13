@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* ------------------------------------------------------------------ *
- * Kusto Explorer — dark, VS Code-inspired design tokens               *
+ * Kusto Explorer design tokens                                        *
  * ------------------------------------------------------------------ */
 @theme {
   --color-bg: #1b1d23;
@@ -20,8 +20,50 @@
   --color-success: #46c17f;
   --color-danger: #f2555a;
   --color-warning: #e0a63c;
+  --color-scrollbar-hover: #4a5060;
+  --color-chart-1: #4c9aff;
+  --color-chart-2: #46c17f;
+  --color-chart-3: #e0a63c;
+  --color-chart-4: #f2555a;
+  --color-chart-5: #a78bfa;
+  --color-chart-6: #22d3ee;
+  --color-chart-7: #f472b6;
+  --color-chart-8: #84cc16;
 
   --font-mono: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-bg: #ffffff;
+  --color-bg-elevated: #f6f8fa;
+  --color-bg-panel: #f3f4f6;
+  --color-bg-hover: #e8ebef;
+  --color-bg-active: #dfe3e8;
+  --color-border: #d8dee4;
+  --color-border-strong: #b8c0ca;
+  --color-text: #1f2328;
+  --color-text-muted: #57606a;
+  --color-text-faint: #6e7781;
+  --color-accent: #0969da;
+  --color-accent-hover: #0757b9;
+  --color-accent-soft: #dbeafe;
+  --color-success: #1a7f37;
+  --color-danger: #cf222e;
+  --color-warning: #9a6700;
+  --color-scrollbar-hover: #8c959f;
+  --color-chart-1: #0969da;
+  --color-chart-2: #1a7f37;
+  --color-chart-3: #9a6700;
+  --color-chart-4: #cf222e;
+  --color-chart-5: #8250df;
+  --color-chart-6: #007d8a;
+  --color-chart-7: #bf3989;
+  --color-chart-8: #4d7c0f;
 }
 
 html,
@@ -40,7 +82,7 @@ body {
   overflow: hidden;
 }
 
-/* Thin, unobtrusive scrollbars to match the dark theme. */
+/* Thin, unobtrusive scrollbars. */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -54,7 +96,7 @@ body {
   border: 2px solid var(--color-bg);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #4a5060;
+  background: var(--color-scrollbar-hover);
 }
 
 /* Reusable primitives */

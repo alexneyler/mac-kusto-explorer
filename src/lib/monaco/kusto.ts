@@ -14,9 +14,14 @@ import "monaco-editor/esm/vs/editor/edcore.main";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import KustoWorker from "@kusto/monaco-kusto/release/esm/kusto.worker?worker";
 
+import type { Theme } from "../../store/themeStore";
+
 export type Monaco = typeof monaco;
 
-const THEME = "kusto-dark";
+const THEMES = {
+  dark: "kusto-dark",
+  light: "kusto-light",
+} satisfies Record<Theme, string>;
 
 let initPromise: Promise<Monaco> | null = null;
 
@@ -37,7 +42,7 @@ export function ensureKusto(): Promise<Monaco> {
       };
       // Importing the contribution registers `monaco.languages.kusto`.
       await import("@kusto/monaco-kusto");
-      defineTheme();
+      defineThemes();
       // Expose the shared instance for debugging and runtime smoke checks.
       (self as unknown as { monaco?: Monaco }).monaco = monaco;
       return monaco;
@@ -79,8 +84,36 @@ const KUSTO_TOKEN_RULES: monaco.editor.ITokenThemeRule[] = [
   { token: "option", foreground: "d4d4d4" },
 ];
 
-function defineTheme() {
-  monaco.editor.defineTheme(THEME, {
+const KUSTO_LIGHT_TOKEN_RULES: monaco.editor.ITokenThemeRule[] = [
+  { token: "plainText", foreground: "1f2328" },
+  { token: "comment", foreground: "6a737d" },
+  { token: "punctuation", foreground: "1f2328" },
+  { token: "directive", foreground: "795e26" },
+  { token: "literal", foreground: "1f2328" },
+  { token: "stringLiteral", foreground: "a31515" },
+  { token: "type", foreground: "267f99" },
+  { token: "column", foreground: "001080" },
+  { token: "table", foreground: "795e26" },
+  { token: "database", foreground: "795e26" },
+  { token: "function", foreground: "795e26" },
+  { token: "parameter", foreground: "001080" },
+  { token: "variable", foreground: "001080" },
+  { token: "identifier", foreground: "1f2328" },
+  { token: "clientParameter", foreground: "007d8a" },
+  { token: "queryParameter", foreground: "007d8a" },
+  { token: "scalarParameter", foreground: "267f99" },
+  { token: "mathOperator", foreground: "1f2328" },
+  { token: "queryOperator", foreground: "008080" },
+  { token: "command", foreground: "0000ff" },
+  { token: "keyword", foreground: "0000ff" },
+  { token: "materializedView", foreground: "795e26" },
+  { token: "schemaMember", foreground: "1f2328" },
+  { token: "signatureParameter", foreground: "1f2328" },
+  { token: "option", foreground: "1f2328" },
+];
+
+function defineThemes() {
+  monaco.editor.defineTheme(THEMES.dark, {
     base: "vs-dark",
     inherit: true,
     rules: KUSTO_TOKEN_RULES,
@@ -99,9 +132,31 @@ function defineTheme() {
       "editorSuggestWidget.border": "#3d424d",
     },
   });
+
+  monaco.editor.defineTheme(THEMES.light, {
+    base: "vs",
+    inherit: true,
+    rules: KUSTO_LIGHT_TOKEN_RULES,
+    colors: {
+      "editor.background": "#ffffff",
+      "editor.foreground": "#1f2328",
+      "editorLineNumber.foreground": "#8c959f",
+      "editorLineNumber.activeForeground": "#57606a",
+      "editor.selectionBackground": "#b6d7ff",
+      "editor.lineHighlightBackground": "#f6f8fa",
+      "editorCursor.foreground": "#0969da",
+      "editorWidget.background": "#f6f8fa",
+      "editorWidget.border": "#d8dee4",
+      "editorSuggestWidget.background": "#f6f8fa",
+      "editorSuggestWidget.selectedBackground": "#dfe3e8",
+      "editorSuggestWidget.border": "#b8c0ca",
+    },
+  });
 }
 
-export const KUSTO_THEME = THEME;
+export function kustoTheme(theme: Theme): string {
+  return THEMES[theme];
+}
 
 /**
  * Push a database schema (raw `showSchema.Result` from the backend) into the

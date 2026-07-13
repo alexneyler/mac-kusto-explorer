@@ -1,12 +1,13 @@
 import { useEffect, useRef } from "react";
 
-import { ensureKusto, KUSTO_THEME, setKustoSchema } from "../lib/monaco/kusto";
+import { ensureKusto, kustoTheme, setKustoSchema } from "../lib/monaco/kusto";
 import type { Monaco } from "../lib/monaco/kusto";
 import {
   schemaKey,
   selectActiveConnection,
   useAppStore,
 } from "../store/appStore";
+import { useThemeStore } from "../store/themeStore";
 
 type Editor = ReturnType<Monaco["editor"]["create"]>;
 
@@ -23,6 +24,7 @@ export function MonacoKustoEditor({ onError }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
+  const theme = useThemeStore((s) => s.theme);
 
   const activeConnection = useAppStore(selectActiveConnection);
   const activeDatabase = useAppStore((s) => s.activeDatabase);
@@ -47,7 +49,7 @@ export function MonacoKustoEditor({ onError }: Props) {
         );
         const editor = monaco.editor.create(containerRef.current, {
           model,
-          theme: KUSTO_THEME,
+          theme: kustoTheme(useThemeStore.getState().theme),
           fontSize: 13,
           fontFamily: '"SF Mono", Menlo, Consolas, monospace',
           minimap: { enabled: false },
@@ -89,6 +91,12 @@ export function MonacoKustoEditor({ onError }: Props) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (monacoRef.current) {
+      monacoRef.current.editor.setTheme(kustoTheme(theme));
+    }
+  }, [theme]);
 
   // Store -> editor for external edits (e.g. inserting a table name from the tree).
   useEffect(() => {
