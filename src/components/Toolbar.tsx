@@ -1,6 +1,7 @@
 import { Bot, Database, Moon, Play, Plus, Server, Sun } from "lucide-react";
 import { useState } from "react";
 
+import { runEditorQuery } from "../lib/queryExecution";
 import {
   selectActiveConnection,
   useAppStore,
@@ -21,7 +22,6 @@ export function Toolbar() {
   const running = useAppStore((s) => s.running);
   const setActiveConnection = useAppStore((s) => s.setActiveConnection);
   const setActiveDatabase = useAppStore((s) => s.setActiveDatabase);
-  const runActiveQuery = useAppStore((s) => s.runActiveQuery);
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
   const panelOpen = useAgentStore((s) => s.panelOpen);
@@ -112,7 +112,7 @@ export function Toolbar() {
       <button
         className="btn btn-primary"
         disabled={!canRun}
-        onClick={() => void runActiveQuery()}
+        onClick={() => void runEditorQuery()}
         title="Run query (⌘/Ctrl+Enter)"
       >
         <Play size={14} />

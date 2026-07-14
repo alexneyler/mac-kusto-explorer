@@ -1,5 +1,15 @@
-import { type KeyboardEvent, useState } from "react";
+import {
+  type KeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
+import {
+  queryAtCursor,
+  registerQueryResolver,
+  runEditorQuery,
+} from "../lib/queryExecution";
 import { selectActiveConnection, useAppStore } from "../store/appStore";
 import { MonacoKustoEditor } from "./MonacoKustoEditor";
 import { QueryTabs } from "./QueryTabs";
@@ -47,19 +57,30 @@ export function QueryEditor() {
 function TextareaEditor() {
   const query = useAppStore((s) => s.query);
   const setQuery = useAppStore((s) => s.setQuery);
-  const runActiveQuery = useAppStore((s) => s.runActiveQuery);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    return registerQueryResolver(async () => {
+      const textarea = textareaRef.current;
+      const text = useAppStore.getState().query;
+      return textarea
+        ? queryAtCursor(text, textarea.selectionStart, textarea.selectionEnd)
+        : text;
+    });
+  }, []);
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     const runCombo =
       (e.key === "Enter" && (e.metaKey || e.ctrlKey)) || e.key === "F5";
     if (runCombo) {
       e.preventDefault();
-      void runActiveQuery();
+      void runEditorQuery();
     }
   }
 
   return (
     <textarea
+      ref={textareaRef}
       aria-label="Query editor"
       spellCheck={false}
       value={query}

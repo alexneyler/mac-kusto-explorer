@@ -174,3 +174,33 @@ export async function setKustoSchema(
   const worker = await accessor(model.uri);
   await worker.setSchemaFromShowSchema(rawShowSchema, clusterUrl, database);
 }
+
+/** Resolve the parsed Kusto command containing the supplied model offset. */
+export async function getKustoCommandAt(
+  model: monaco.editor.ITextModel,
+  cursorOffset: number,
+): Promise<string | null> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const resolution = (async () => {
+    const { getKustoWorker } = await import("@kusto/monaco-kusto");
+    const accessor = await getKustoWorker();
+    const worker = await accessor(model.uri);
+    const command = await worker.getCommandAndLocationInContext(
+      model.uri.toString(),
+      cursorOffset,
+    );
+    return command?.text ?? null;
+  })();
+  const deadline = new Promise<never>((_, reject) => {
+    timeout = setTimeout(
+      () => reject(new Error("Kusto command resolution timed out.")),
+      2_000,
+    );
+  });
+
+  try {
+    return await Promise.race([resolution, deadline]);
+  } finally {
+    clearTimeout(timeout);
+  }
+}

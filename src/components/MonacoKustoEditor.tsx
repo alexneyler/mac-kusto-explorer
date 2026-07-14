@@ -1,7 +1,17 @@
 import { useEffect, useRef } from "react";
 
-import { ensureKusto, kustoTheme, setKustoSchema } from "../lib/monaco/kusto";
+import {
+  ensureKusto,
+  getKustoCommandAt,
+  kustoTheme,
+  setKustoSchema,
+} from "../lib/monaco/kusto";
 import type { Monaco } from "../lib/monaco/kusto";
+import {
+  queryAtCursor,
+  registerQueryResolver,
+  runEditorQuery,
+} from "../lib/queryExecution";
 import {
   schemaKey,
   selectActiveConnection,
@@ -37,6 +47,7 @@ export function MonacoKustoEditor({ onError }: Props) {
   // Create the editor once.
   useEffect(() => {
     let disposed = false;
+    let unregisterQueryResolver: (() => void) | undefined;
 
     ensureKusto()
       .then((monaco) => {
@@ -65,6 +76,32 @@ export function MonacoKustoEditor({ onError }: Props) {
         });
         editorRef.current = editor;
 
+        unregisterQueryResolver = registerQueryResolver(async () => {
+          const selection = editor.getSelection();
+          if (selection && !selection.isEmpty()) {
+            return model.getValueInRange(selection);
+          }
+
+          const position = editor.getPosition();
+          if (!position) return model.getValue();
+          const offset = model.getOffsetAt(position);
+          if (model.getLineContent(position.lineNumber).trim() === "") {
+            return queryAtCursor(model.getValue(), offset);
+          }
+          try {
+            return (
+              (await getKustoCommandAt(model, offset)) ??
+              queryAtCursor(model.getValue(), offset)
+            );
+          } catch (error) {
+            console.warn(
+              "Kusto command resolution failed; using text boundaries.",
+              error,
+            );
+            return queryAtCursor(model.getValue(), offset);
+          }
+        });
+
         // Editor -> store.
         model.onDidChangeContent(() => {
           const value = model.getValue();
@@ -73,7 +110,7 @@ export function MonacoKustoEditor({ onError }: Props) {
         });
 
         // Run shortcuts.
-        const run = () => void useAppStore.getState().runActiveQuery();
+        const run = () => void runEditorQuery();
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, run);
         editor.addCommand(monaco.KeyCode.F5, run);
 
@@ -85,6 +122,7 @@ export function MonacoKustoEditor({ onError }: Props) {
 
     return () => {
       disposed = true;
+      unregisterQueryResolver?.();
       editorRef.current?.getModel()?.dispose();
       editorRef.current?.dispose();
       editorRef.current = null;

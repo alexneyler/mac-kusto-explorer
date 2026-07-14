@@ -131,7 +131,7 @@ interface Actions {
   ): Promise<void>;
   refreshDatabases(connectionId: string): Promise<void>;
   refreshSchema(connectionId: string, database: string): Promise<void>;
-  runActiveQuery(): Promise<void>;
+  runActiveQuery(queryOverride?: string): Promise<void>;
 }
 
 export type AppStore = DataState & Actions;
@@ -595,7 +595,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     return get().loadSchema(connectionId, database, true);
   },
 
-  async runActiveQuery() {
+  async runActiveQuery(queryOverride) {
     const state = get();
     const conn = state.connections.find(
       (c) => c.id === state.activeConnectionId,
@@ -608,7 +608,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set({ error: "Select a database first." });
       return;
     }
-    const query = state.query.trim();
+    const query = (queryOverride ?? state.query).trim();
     if (query === "") {
       set({ error: "Enter a query to run." });
       return;
