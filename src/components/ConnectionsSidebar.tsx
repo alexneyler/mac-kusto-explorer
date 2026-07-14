@@ -3,6 +3,7 @@ import {
   ChevronRight,
   Columns3,
   Database,
+  FileText,
   Folder,
   FunctionSquare,
   Info,
@@ -49,6 +50,11 @@ import type {
   FunctionSchema,
   TableSchema,
 } from "../types/kusto";
+import type {
+  AgentContextTarget,
+  SchemaEntityKind,
+} from "../types/agent";
+import { ContextEditorDialog } from "./context/ContextEditorDialog";
 
 /** Render a label with the query's matching substrings highlighted. */
 function HighlightedLabel({ text, query }: { text: string; query: string }) {
@@ -214,14 +220,42 @@ function Spinner() {
   );
 }
 
+function ContextButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      className="ml-1 flex h-4 w-4 items-center justify-center rounded text-[var(--color-text-faint)] opacity-0 hover:text-[var(--color-text)] group-hover:opacity-100 focus:opacity-100"
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+      onDoubleClick={(event) => event.stopPropagation()}
+    >
+      <FileText size={12} />
+    </button>
+  );
+}
+
 function TableNode({
   table,
   depth,
   filter,
+  contextTarget,
+  onEditContext,
 }: {
   table: TableSchema;
   depth: number;
   filter: string;
+  contextTarget: AgentContextTarget;
+  onEditContext: (target: AgentContextTarget) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const appendToQuery = useAppStore((s) => s.appendToQuery);
@@ -245,6 +279,12 @@ function TableNode({
         highlightQuery={filter}
         hint={table.docString ?? undefined}
         inlineHint={false}
+        actions={
+          <ContextButton
+            label={`Edit personal context for ${table.name}`}
+            onClick={() => onEditContext(contextTarget)}
+          />
+        }
         onClick={() => setExpanded((v) => !v)}
         onDoubleClick={() => appendToQuery(table.name)}
       />
@@ -382,11 +422,13 @@ function DatabaseNode({
   database,
   depth,
   filter,
+  onEditContext,
 }: {
   conn: Connection;
   database: string;
   depth: number;
   filter: string;
+  onEditContext: (target: AgentContextTarget) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const activeDatabase = useAppStore((s) => s.activeDatabase);
@@ -438,10 +480,23 @@ function DatabaseNode({
         label={database}
         highlightQuery={filter}
         actions={
-          <RefreshButton
-            label={`Refresh ${database} schema`}
-            onRefresh={() => void refreshSchema(conn.id, database)}
-          />
+          <>
+            <ContextButton
+              label={`Edit personal context for ${database}`}
+              onClick={() =>
+                onEditContext({
+                  scope: "database",
+                  clusterId: conn.id,
+                  clusterName: conn.name,
+                  database,
+                })
+              }
+            />
+            <RefreshButton
+              label={`Refresh ${database} schema`}
+              onRefresh={() => void refreshSchema(conn.id, database)}
+            />
+          </>
         }
         onClick={handleClick}
       />
@@ -482,6 +537,13 @@ function DatabaseNode({
                     table={view}
                     depth={entityDepth}
                     filter={filter}
+                    contextTarget={tableContextTarget(
+                      conn,
+                      database,
+                      "materializedView",
+                      view.name,
+                    )}
+                    onEditContext={onEditContext}
                   />
                 )}
               />
@@ -496,6 +558,13 @@ function DatabaseNode({
                     table={table}
                     depth={entityDepth}
                     filter={filter}
+                    contextTarget={tableContextTarget(
+                      conn,
+                      database,
+                      "table",
+                      table.name,
+                    )}
+                    onEditContext={onEditContext}
                   />
                 )}
               />
@@ -510,6 +579,13 @@ function DatabaseNode({
                     table={table}
                     depth={entityDepth}
                     filter={filter}
+                    contextTarget={tableContextTarget(
+                      conn,
+                      database,
+                      "externalTable",
+                      table.name,
+                    )}
+                    onEditContext={onEditContext}
                   />
                 )}
               />
@@ -521,7 +597,31 @@ function DatabaseNode({
   );
 }
 
-function ConnectionNode({ conn, filter }: { conn: Connection; filter: string }) {
+function tableContextTarget(
+  conn: Connection,
+  database: string,
+  entityKind: SchemaEntityKind,
+  entityName: string,
+): AgentContextTarget {
+  return {
+    scope: "table",
+    clusterId: conn.id,
+    clusterName: conn.name,
+    database,
+    entityKind,
+    entityName,
+  };
+}
+
+function ConnectionNode({
+  conn,
+  filter,
+  onEditContext,
+}: {
+  conn: Connection;
+  filter: string;
+  onEditContext: (target: AgentContextTarget) => void;
+}) {
   const activeConnectionId = useAppStore((s) => s.activeConnectionId);
   const setActiveConnection = useAppStore((s) => s.setActiveConnection);
   const loadDatabases = useAppStore((s) => s.loadDatabases);
@@ -573,10 +673,22 @@ function ConnectionNode({ conn, filter }: { conn: Connection; filter: string }) 
         highlightQuery={filter}
         hint={conn.tenant ? "tenant" : undefined}
         actions={
-          <RefreshButton
-            label={`Refresh ${conn.name} databases`}
-            onRefresh={() => void refreshDatabases(conn.id)}
-          />
+          <>
+            <ContextButton
+              label={`Edit personal context for ${conn.name}`}
+              onClick={() =>
+                onEditContext({
+                  scope: "cluster",
+                  clusterId: conn.id,
+                  clusterName: conn.name,
+                })
+              }
+            />
+            <RefreshButton
+              label={`Refresh ${conn.name} databases`}
+              onRefresh={() => void refreshDatabases(conn.id)}
+            />
+          </>
         }
         onClick={handleClick}
       />
@@ -594,6 +706,7 @@ function ConnectionNode({ conn, filter }: { conn: Connection; filter: string }) 
               database={db}
               depth={1}
               filter={filter}
+              onEditContext={onEditContext}
             />
           ))}
           {databases && databases.length === 0 && (
@@ -672,6 +785,8 @@ export function ConnectionsSidebar() {
   const databasesByConn = useAppStore((s) => s.databasesByConn);
   const schemaByKey = useAppStore((s) => s.schemaByKey);
   const [filter, setFilter] = useState("");
+  const [contextTarget, setContextTarget] =
+    useState<AgentContextTarget | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   // Ctrl+F / ⌘+F focuses the schema filter (scoped to the app window).
@@ -734,10 +849,20 @@ export function ConnectionsSidebar() {
           </div>
         ) : (
           visibleConnections.map((c) => (
-            <ConnectionNode key={c.id} conn={c} filter={filter} />
+            <ConnectionNode
+              key={c.id}
+              conn={c}
+              filter={filter}
+              onEditContext={setContextTarget}
+            />
           ))
         )}
       </div>
+      <ContextEditorDialog
+        open={contextTarget !== null}
+        target={contextTarget}
+        onClose={() => setContextTarget(null)}
+      />
     </div>
   );
 }

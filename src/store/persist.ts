@@ -11,6 +11,7 @@ export interface PersistedTab {
   id: string;
   title: string;
   query: string;
+  revision: number;
   connectionId: string | null;
   database: string | null;
 }
@@ -51,6 +52,12 @@ function parseTabs(value: unknown): PersistedTab[] | undefined {
       id: t.id as string,
       title: t.title as string,
       query: t.query as string,
+      revision:
+        typeof t.revision === "number" &&
+        Number.isSafeInteger(t.revision) &&
+        t.revision >= 0
+          ? t.revision
+          : Date.now(),
       connectionId: typeof t.connectionId === "string" ? t.connectionId : null,
       database: typeof t.database === "string" ? t.database : null,
     }));

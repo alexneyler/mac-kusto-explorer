@@ -1,4 +1,4 @@
-import { Database, Moon, Play, Plus, Server, Sun } from "lucide-react";
+import { Bot, Database, Moon, Play, Plus, Server, Sun } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -6,6 +6,7 @@ import {
   useAppStore,
 } from "../store/appStore";
 import { useThemeStore } from "../store/themeStore";
+import { useAgentStore } from "../store/agentStore";
 import { AddConnectionDialog } from "./AddConnectionDialog";
 import { ShareExportButtons } from "./ShareExportButtons";
 
@@ -23,6 +24,8 @@ export function Toolbar() {
   const runActiveQuery = useAppStore((s) => s.runActiveQuery);
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
+  const panelOpen = useAgentStore((s) => s.panelOpen);
+  const setPanelOpen = useAgentStore((s) => s.setPanelOpen);
 
   const databases = activeConnectionId
     ? (databasesByConn[activeConnectionId] ?? [])
@@ -92,6 +95,16 @@ export function Toolbar() {
         onClick={toggleTheme}
       >
         {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
+      </button>
+
+      <button
+        className={`btn px-2 py-1 ${panelOpen ? "border-[var(--color-accent)]" : ""}`}
+        aria-label={panelOpen ? "Close query agent" : "Open query agent"}
+        title={panelOpen ? "Close query agent" : "Open query agent"}
+        onClick={() => setPanelOpen(!panelOpen)}
+      >
+        <Bot size={14} />
+        Agent
       </button>
 
       <ShareExportButtons />

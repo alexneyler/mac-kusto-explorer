@@ -89,6 +89,7 @@ export interface QueryTab {
   id: string;
   title: string;
   query: string;
+  revision: number;
   result: QueryResponse | null;
   running: boolean;
   error: AppError | string | null;

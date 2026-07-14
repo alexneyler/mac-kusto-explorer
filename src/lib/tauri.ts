@@ -5,6 +5,14 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import type {
+  AgentContextData,
+  AgentConversationData,
+  AgentRuntimeInfo,
+  AgentSessionSnapshot,
+  AgentSessionSummary,
+  AgentWorkspaceResult,
+} from "../types/agent";
+import type {
   DatabaseSchema,
   ExportFormat,
   KustoResultSet,
@@ -87,6 +95,112 @@ export function exportResult(args: {
     format: args.format,
     result: args.result,
   });
+}
+
+// The agent command surface intentionally contains no query execution or
+// result-reading operation.
+export function loadAgentContext(): Promise<AgentContextData> {
+  return invoke<AgentContextData>("load_agent_context");
+}
+
+export function saveAgentContext(data: AgentContextData): Promise<void> {
+  return invoke("save_agent_context", { data });
+}
+
+export function loadAgentConversation(): Promise<AgentConversationData> {
+  return invoke<AgentConversationData>("load_agent_conversation");
+}
+
+export function saveAgentConversation(
+  data: AgentConversationData,
+): Promise<void> {
+  return invoke("save_agent_conversation", { data });
+}
+
+export function clearAgentConversationData(): Promise<void> {
+  return invoke("clear_agent_conversation");
+}
+
+export function getAgentStatus(): Promise<AgentRuntimeInfo> {
+  return invoke<AgentRuntimeInfo>("get_agent_status");
+}
+
+export function startAgentSession(
+  sessionId: string | null,
+  model: string | null,
+  reasoningEffort: string | null,
+): Promise<string> {
+  return invoke<string>("start_agent_session", {
+    sessionId,
+    model,
+    reasoningEffort,
+  });
+}
+
+export function sendAgentMessage(
+  prompt: string,
+  displayPrompt: string,
+): Promise<void> {
+  return invoke("send_agent_message", { prompt, displayPrompt });
+}
+
+export function listAgentSessions(): Promise<AgentSessionSummary[]> {
+  return invoke<AgentSessionSummary[]>("list_agent_sessions");
+}
+
+export function renameAgentSession(
+  sessionId: string,
+  name: string,
+): Promise<void> {
+  return invoke("rename_agent_session", { sessionId, name });
+}
+
+export function deleteAgentSession(sessionId: string): Promise<boolean> {
+  return invoke<boolean>("delete_agent_session", { sessionId });
+}
+
+export function createNewAgentSession(
+  model: string | null,
+  reasoningEffort: string | null,
+): Promise<AgentSessionSnapshot> {
+  return invoke<AgentSessionSnapshot>("create_new_agent_session", {
+    model,
+    reasoningEffort,
+  });
+}
+
+export function resumeAgentSession(
+  sessionId: string,
+  model: string | null,
+  reasoningEffort: string | null,
+): Promise<AgentSessionSnapshot> {
+  return invoke<AgentSessionSnapshot>("resume_agent_session", {
+    sessionId,
+    model,
+    reasoningEffort,
+  });
+}
+
+export function configureAgentModel(
+  model: string,
+  reasoningEffort: string | null,
+): Promise<void> {
+  return invoke("configure_agent_model", { model, reasoningEffort });
+}
+
+export function abortAgentTurn(): Promise<void> {
+  return invoke("abort_agent_turn");
+}
+
+export function clearAgentSession(sessionId: string | null): Promise<void> {
+  return invoke("clear_agent_session", { sessionId });
+}
+
+export function completeAgentWorkspaceRequest(
+  id: string,
+  result: AgentWorkspaceResult,
+): Promise<void> {
+  return invoke("complete_agent_workspace_request", { id, result });
 }
 
 export type { DatabaseSchema };

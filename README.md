@@ -26,6 +26,20 @@ reuses your local **Azure CLI** session — no app registration or client ID req
   **+**, close one with its **×**, switch by clicking, and double-click a tab to
   rename it. The Toolbar's connection and database selectors act on the active
   tab, and open tabs are restored on the next launch.
+- **Metadata-only KQL agent.** Open the resizable **Agent** panel to draft KQL
+  with GitHub Copilot. The agent can inspect structured schema metadata and
+  query editor text, then open, focus, or revision-safely edit query tabs. It
+  has no query-execution or result-reading tool and cannot access database rows.
+  Every tool action is shown as an expandable activity row with its exact
+  arguments and result, and generated KQL is never run automatically. Previous
+  Copilot sessions can be searched, reopened, renamed, or deleted from the
+  panel. The agent can connect the focused tab to a requested database and
+  preload its schema metadata. Model and model-supported thinking levels can be
+  selected directly from the chat composer.
+- **Hierarchical personal context.** Attach local guidance to a cluster,
+  database, table, materialized view, or external table from the schema tree.
+  Cluster and database guidance is included automatically; table guidance is
+  included only when that entity is inspected.
 - **Results grid.** Virtualized table (TanStack) with typed cell rendering
   (numbers, datetimes, booleans, dynamic/JSON), column sorting, row/column
   counts, and query execution time.
@@ -53,6 +67,9 @@ reuses your local **Azure CLI** session — no app registration or client ID req
 - **[Node.js](https://nodejs.org/)** 18+ (developed on v22).
 - **[Rust](https://www.rust-lang.org/tools/install)** stable (developed on 1.96)
   and the [Tauri prerequisites](https://tauri.app/start/prerequisites/) for your OS.
+- **GitHub Copilot access** for the agent panel. Sign in through GitHub CLI or
+  Copilot CLI; the app does not store a GitHub token in its agent data files.
+  The Copilot CLI runtime itself is bundled in release builds.
 
 ## Getting started
 
@@ -92,8 +109,8 @@ tab.
 Everything testable is covered by unit and integration tests.
 
 ```bash
-# Rust backend (auth cache, REST client, parsers, schema, formatters)
-cd src-tauri && cargo test          # 59 tests
+# Rust backend (auth cache, REST client, parsers, schema, agent safety)
+cd src-tauri && cargo test
 
 # Frontend (store, actions, components, formatting)
 npm test                            # see test suite (Vitest + Testing Library)
@@ -121,6 +138,9 @@ React UI ──invoke──▶ Tauri commands (Rust)
   Monaco + kusto editor run_query   (v2 REST → { columns, rows, elapsed_ms })
   Results grid          format_share (markdown / json / tsv / datatable, pure)
   Share / Export        export_result (save dialog → csv / json / tsv)
+  Agent panel           github-copilot-sdk → bundled Copilot CLI
+    │                    ClientMode::Empty + exact custom-tool allowlist
+    └─ workspace bridge schema metadata + query-tab text/mutations only
 
 Auth: TokenProvider trait ▶ AzCliTokenProvider (caches per cluster+tenant, expiry-aware)
 ```
@@ -137,6 +157,21 @@ integration-tested with `httpmock`:
 - **Schema** — `.show database <db> schema as json` is transformed into both a
   compact tree (for the sidebar) and the raw payload (fed to the language service
   for IntelliSense).
+- **Agent** — uses the canonical Rust `github-copilot-sdk`, pinned to commit
+  `5adb51b9e2ac50ad4876e756fa8c05549c1490fd`, with its `bundled-cli` feature.
+  Sessions run in `ClientMode::Empty` with ten source-qualified app tools,
+  deny ambient permission requests, and reject unknown tools in a pre-tool
+  hook. Schema access is
+  limited to the existing database-list and `.show database <db> schema as
+  json` metadata calls. No `run_query`, result DTO, shell, filesystem, web,
+  built-in, MCP, skill, or ambient CLI tool is registered.
+- **Agent data** — personal context and the normalized conversation/session ID
+  are versioned and stored in separate files under the application data
+  directory using atomic replacement. Copilot session history remains in the
+  SDK's isolated app-data directory so previous sessions can be reopened.
+  Conversation and personal context can be cleared independently.
+  Personal context may be sent to Copilot, so it must not contain secrets,
+  credentials, or database row data.
 - **Format** — pure formatters: CSV (RFC 4180), GitHub-flavored Markdown, JSON,
   TSV, and KQL `datatable()` literals.
 

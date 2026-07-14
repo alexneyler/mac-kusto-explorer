@@ -17,6 +17,7 @@ import { errorMessage } from "../types/kusto";
 import { loadPersisted, savePersisted } from "./persist";
 
 export const DEFAULT_QUERY = "StormEvents\n| take 100";
+export type TabMutationResult = "updated" | "conflict" | "not_found";
 
 /** Compose the cache key for a (connection, database) schema entry. */
 export function schemaKey(connectionId: string, database: string): string {
@@ -41,6 +42,7 @@ function makeTab(
     id: newTabId(),
     title,
     query,
+    revision: 0,
     result: null,
     running: false,
     error: null,
@@ -92,6 +94,12 @@ interface Actions {
   removeConnection(id: string): void;
   setActiveConnection(id: string): void;
   setActiveDatabase(database: string): void;
+  connectDatabase(input: {
+    clusterUrl: string;
+    database: string;
+    name?: string;
+    tenant?: string;
+  }): Promise<Connection>;
   setQuery(query: string): void;
   appendToQuery(text: string): void;
   clearError(): void;
@@ -99,6 +107,22 @@ interface Actions {
   closeTab(id: string): void;
   setActiveTab(id: string): void;
   renameTab(id: string, title: string): void;
+  openQueryTab(input: {
+    title?: string;
+    query: string;
+    connectionId?: string | null;
+    database?: string | null;
+  }): string;
+  replaceTabQuery(
+    id: string,
+    query: string,
+    expectedRevision: number,
+  ): TabMutationResult;
+  appendTabQuery(
+    id: string,
+    text: string,
+    expectedRevision: number,
+  ): TabMutationResult;
   loadDatabases(connectionId: string, force?: boolean): Promise<void>;
   loadSchema(
     connectionId: string,
@@ -116,7 +140,13 @@ export type AppStore = DataState & Actions;
 type ActivePatch = Partial<
   Pick<
     QueryTab,
-    "query" | "result" | "running" | "error" | "connectionId" | "database"
+    | "query"
+    | "revision"
+    | "result"
+    | "running"
+    | "error"
+    | "connectionId"
+    | "database"
   >
 >;
 
@@ -185,6 +215,7 @@ function initialState(): DataState {
       id: t.id,
       title: t.title,
       query: t.query,
+      revision: t.revision,
       result: null,
       running: false,
       error: null,
@@ -274,8 +305,87 @@ export const useAppStore = create<AppStore>((set, get) => ({
     if (connId) void get().loadSchema(connId, database);
   },
 
+  async connectDatabase(input) {
+    const targetTabId = get().activeTabId;
+    const requested = makeConnection({
+      clusterUrl: input.clusterUrl,
+      name: input.name,
+      tenant: input.tenant,
+    });
+    const existing = get().connections.find(
+      (connection) => connection.id === requested.id,
+    );
+    const connection: Connection = {
+      ...requested,
+      name: input.name?.trim() || existing?.name || requested.name,
+      tenant: input.tenant?.trim() || existing?.tenant,
+    };
+    const response = await api.getSchema({
+      cluster: connection.clusterUrl,
+      database: input.database,
+      tenant: connection.tenant,
+    });
+    if (!get().tabs.some((tab) => tab.id === targetTabId)) {
+      throw new Error("The focused query tab was closed before connecting.");
+    }
+    const key = schemaKey(connection.id, input.database);
+    set((state) => {
+      const connections = existing
+        ? state.connections.map((candidate) =>
+            candidate.id === connection.id ? connection : candidate,
+          )
+        : [...state.connections, connection];
+      const databases = state.databasesByConn[connection.id] ?? [];
+      const tabs = state.tabs.map((tab) =>
+        tab.id === targetTabId
+          ? {
+              ...tab,
+              connectionId: connection.id,
+              database: input.database,
+            }
+          : tab,
+      );
+      const activeContext =
+        state.activeTabId === targetTabId
+          ? {
+              activeConnectionId: connection.id,
+              activeDatabase: input.database,
+            }
+          : {};
+      return {
+        connections,
+        tabs,
+        databasesByConn: {
+          ...state.databasesByConn,
+          [connection.id]: databases.includes(input.database)
+            ? databases
+            : [...databases, input.database].sort(),
+        },
+        schemaByKey: {
+          ...state.schemaByKey,
+          [key]: response.database,
+        },
+        rawSchemaByKey: {
+          ...state.rawSchemaByKey,
+          [key]: response.raw,
+        },
+        error: null,
+        ...activeContext,
+      };
+    });
+    persist(get());
+    void get().refreshDatabases(connection.id);
+    return connection;
+  },
+
   setQuery(query) {
-    set((s) => patchActive(s, { query }));
+    set((s) => {
+      const active = s.tabs.find((tab) => tab.id === s.activeTabId);
+      return patchActive(s, {
+        query,
+        revision: (active?.revision ?? 0) + 1,
+      });
+    });
     // Desktop app: localStorage writes are cheap, so persist immediately
     // rather than debouncing. This keeps the editor text across reloads.
     persist(get());
@@ -285,7 +395,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((s) => {
       const base = s.query.replace(/\s+$/, "");
       const next = base === "" ? text : `${base}\n${text}`;
-      return patchActive(s, { query: next });
+      const active = s.tabs.find((tab) => tab.id === s.activeTabId);
+      return patchActive(s, {
+        query: next,
+        revision: (active?.revision ?? 0) + 1,
+      });
     });
     persist(get());
   },
@@ -364,6 +478,53 @@ export const useAppStore = create<AppStore>((set, get) => ({
       tabs: s.tabs.map((t) => (t.id === id ? { ...t, title: trimmed } : t)),
     }));
     persist(get());
+  },
+
+  openQueryTab(input) {
+    const s0 = get();
+    const tab = makeTab(
+      input.title?.trim() || nextTabTitle(s0.tabs),
+      input.query,
+      input.connectionId === undefined
+        ? s0.activeConnectionId
+        : input.connectionId,
+      input.database === undefined ? s0.activeDatabase : input.database,
+    );
+    set((s) => ({
+      tabs: [...s.tabs, tab],
+      activeTabId: tab.id,
+      ...mirrorOf(tab),
+    }));
+    persist(get());
+    return tab.id;
+  },
+
+  replaceTabQuery(id, query, expectedRevision) {
+    const tab = get().tabs.find((item) => item.id === id);
+    if (!tab) return "not_found";
+    if (tab.revision !== expectedRevision) return "conflict";
+    const next = { ...tab, query, revision: tab.revision + 1 };
+    set((s) => ({
+      tabs: s.tabs.map((item) => (item.id === id ? next : item)),
+      ...(s.activeTabId === id ? { query: next.query } : {}),
+    }));
+    persist(get());
+    return "updated";
+  },
+
+  appendTabQuery(id, text, expectedRevision) {
+    const tab = get().tabs.find((item) => item.id === id);
+    if (!tab) return "not_found";
+    if (tab.revision !== expectedRevision) return "conflict";
+    const base = tab.query.replace(/\s+$/, "");
+    const query = base === "" ? text : `${base}\n${text}`;
+    const next = { ...tab, query, revision: tab.revision + 1 };
+    set((s) => ({
+      tabs: s.tabs.map((item) => (item.id === id ? next : item)),
+      ...(s.activeTabId === id ? { query: next.query } : {}),
+    }));
+    persist(get());
+    return "updated";
   },
 
   async loadDatabases(connectionId, force = false) {
@@ -481,6 +642,7 @@ function persist(state: DataState): void {
       id: t.id,
       title: t.title,
       query: t.query,
+      revision: t.revision,
       connectionId: t.connectionId,
       database: t.database,
     })),
