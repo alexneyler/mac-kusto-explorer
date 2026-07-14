@@ -242,6 +242,29 @@ describe("runActiveQuery", () => {
     expect(s.error).toBeNull();
   });
 
+  it("runs an explicit cursor command without replacing the editor query", async () => {
+    mockApi.listDatabases.mockResolvedValue(["Samples"]);
+    mockApi.runQuery.mockResolvedValue({
+      columns: [],
+      rows: [],
+      row_count: 0,
+      elapsed_ms: 1,
+    });
+    const conn = useAppStore.getState().addConnection({ clusterUrl: "help" });
+    const fullQuery = "T\n| count\n\nOther\n| take 1";
+    useAppStore.setState({ activeDatabase: "Samples", query: fullQuery });
+
+    await useAppStore.getState().runActiveQuery("Other\n| take 1");
+
+    expect(mockApi.runQuery).toHaveBeenCalledWith({
+      cluster: conn.clusterUrl,
+      database: "Samples",
+      query: "Other\n| take 1",
+      tenant: undefined,
+    });
+    expect(useAppStore.getState().query).toBe(fullQuery);
+  });
+
   it("captures a query error and clears the result", async () => {
     mockApi.listDatabases.mockResolvedValue(["Samples"]);
     mockApi.runQuery.mockRejectedValue({ kind: "kusto", message: "Syntax" });
