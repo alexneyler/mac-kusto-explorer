@@ -43,4 +43,45 @@ describe("persist", () => {
       query: null,
     });
   });
+
+  it("round-trips tab revisions", () => {
+    savePersisted({
+      connections: [],
+      activeConnectionId: null,
+      activeDatabase: null,
+      query: "print 1",
+      tabs: [
+        {
+          id: "tab-1",
+          title: "Query 1",
+          query: "print 1",
+          revision: 7,
+          connectionId: null,
+          database: null,
+        },
+      ],
+      activeTabId: "tab-1",
+    });
+    expect(loadPersisted().tabs?.[0].revision).toBe(7);
+  });
+
+  it("invalidates legacy tabs that have no revision", () => {
+    localStorage.setItem(
+      "kusto-explorer.state.v1",
+      JSON.stringify({
+        connections: [],
+        query: "print 1",
+        tabs: [
+          {
+            id: "tab-1",
+            title: "Query 1",
+            query: "print 1",
+            connectionId: null,
+            database: null,
+          },
+        ],
+      }),
+    );
+    expect(loadPersisted().tabs?.[0].revision).toBeGreaterThan(0);
+  });
 });

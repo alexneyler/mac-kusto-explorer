@@ -102,6 +102,7 @@ describe("setActiveDatabase", () => {
       },
       raw: { Databases: {} },
     });
+
     const conn = useAppStore.getState().addConnection({ clusterUrl: "help" });
     useAppStore.getState().setActiveDatabase("Samples");
     // let the async loadSchema resolve
@@ -116,6 +117,92 @@ describe("setActiveDatabase", () => {
     // Selecting again should not refetch (cached).
     useAppStore.getState().setActiveDatabase("Samples");
     expect(mockApi.getSchema).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("connectDatabase", () => {
+  it("adds and selects a database only after schema metadata loads", async () => {
+    mockApi.getSchema.mockResolvedValue({
+      database: {
+        name: "Samples",
+        tables: [],
+        materializedViews: [],
+        externalTables: [],
+        functions: [],
+      },
+      raw: { Databases: {} },
+    });
+    mockApi.listDatabases.mockResolvedValue(["Samples"]);
+
+    const connection = await useAppStore.getState().connectDatabase({
+      clusterUrl: "help",
+      database: "Samples",
+    });
+    const state = useAppStore.getState();
+
+    expect(mockApi.getSchema).toHaveBeenCalledWith({
+      cluster: "https://help.kusto.windows.net",
+      database: "Samples",
+      tenant: undefined,
+    });
+    expect(state.activeConnectionId).toBe(connection.id);
+    expect(state.activeDatabase).toBe("Samples");
+    expect(state.schemaByKey[schemaKey(connection.id, "Samples")]).toBeDefined();
+    expect(state.running).toBe(false);
+    expect(mockApi.runQuery).not.toHaveBeenCalled();
+  });
+
+  it("does not add a connection when schema access fails", async () => {
+    mockApi.getSchema.mockRejectedValue(new Error("schema denied"));
+
+    await expect(
+      useAppStore.getState().connectDatabase({
+        clusterUrl: "private",
+        database: "Restricted",
+      }),
+    ).rejects.toThrow("schema denied");
+
+    expect(useAppStore.getState().connections).toEqual([]);
+  });
+
+  it("connects the tab that was focused when the request started", async () => {
+    let finishSchema:
+      | ((response: Awaited<ReturnType<typeof api.getSchema>>) => void)
+      | undefined;
+    mockApi.getSchema.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishSchema = resolve;
+      }),
+    );
+    mockApi.listDatabases.mockResolvedValue(["Samples"]);
+    const targetTabId = useAppStore.getState().activeTabId;
+
+    const connecting = useAppStore.getState().connectDatabase({
+      clusterUrl: "help",
+      database: "Samples",
+    });
+    const otherTabId = useAppStore.getState().addTab();
+    finishSchema?.({
+      database: {
+        name: "Samples",
+        tables: [],
+        materializedViews: [],
+        externalTables: [],
+        functions: [],
+      },
+      raw: {},
+    });
+    await connecting;
+
+    const state = useAppStore.getState();
+    expect(state.activeTabId).toBe(otherTabId);
+    expect(state.activeConnectionId).toBeNull();
+    expect(
+      state.tabs.find((tab) => tab.id === targetTabId),
+    ).toMatchObject({
+      connectionId: "https://help.kusto.windows.net",
+      database: "Samples",
+    });
   });
 });
 
@@ -310,6 +397,45 @@ describe("query tabs", () => {
     expect(useAppStore.getState().tabs[0].title).toBe("My analysis");
     useAppStore.getState().renameTab(id, "   ");
     expect(useAppStore.getState().tabs[0].title).toBe("My analysis");
+  });
+
+  it("increments the revision when the user edits query text", () => {
+    const before = useAppStore.getState().tabs[0].revision;
+    useAppStore.getState().setQuery("StormEvents | take 5");
+    expect(useAppStore.getState().tabs[0].revision).toBe(before + 1);
+  });
+
+  it("applies agent tab edits only at the observed revision", () => {
+    const tab = useAppStore.getState().tabs[0];
+    expect(
+      useAppStore
+        .getState()
+        .replaceTabQuery(tab.id, "StormEvents | count", tab.revision),
+    ).toBe("updated");
+    expect(useAppStore.getState().query).toBe("StormEvents | count");
+    expect(
+      useAppStore
+        .getState()
+        .appendTabQuery(tab.id, "\n| take 10", tab.revision),
+    ).toBe("conflict");
+  });
+
+  it("reports missing tabs to agent mutations", () => {
+    expect(
+      useAppStore.getState().replaceTabQuery("missing", "print 1", 0),
+    ).toBe("not_found");
+  });
+
+  it("opens and focuses an agent-created tab without executing it", () => {
+    const id = useAppStore.getState().openQueryTab({
+      title: "Agent draft",
+      query: "StormEvents | take 10",
+    });
+    const state = useAppStore.getState();
+    expect(state.activeTabId).toBe(id);
+    expect(state.query).toBe("StormEvents | take 10");
+    expect(state.running).toBe(false);
+    expect(mockApi.runQuery).not.toHaveBeenCalled();
   });
 
   it("persists tabs and restores them on store re-creation", async () => {

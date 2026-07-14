@@ -109,7 +109,14 @@ describe("Toolbar", () => {
   it("switches to light mode and persists the selection", async () => {
     render(<Toolbar />);
 
-    await userEvent.click(screen.getByLabelText("Switch to light mode"));
+    const themeToggle = screen.getByLabelText("Switch to light mode");
+    const agentToggle = screen.getByLabelText("Open query agent");
+    expect(
+      themeToggle.compareDocumentPosition(agentToggle) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    await userEvent.click(themeToggle);
 
     expect(useThemeStore.getState().theme).toBe("light");
     expect(document.documentElement.dataset.theme).toBe("light");

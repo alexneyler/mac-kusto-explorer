@@ -12,6 +12,9 @@ pub enum AppError {
     #[error("Authentication failed: {0}")]
     Auth(String),
 
+    #[error("Agent error: {0}")]
+    Agent(String),
+
     #[error("Network error: {0}")]
     Http(String),
 
@@ -34,6 +37,7 @@ impl AppError {
         match self {
             AppError::AzNotFound => "az_not_found",
             AppError::Auth(_) => "auth",
+            AppError::Agent(_) => "agent",
             AppError::Http(_) => "http",
             AppError::Kusto(_) => "kusto",
             AppError::Parse(_) => "parse",
@@ -71,6 +75,12 @@ impl From<serde_json::Error> for AppError {
 impl From<std::io::Error> for AppError {
     fn from(e: std::io::Error) -> Self {
         AppError::Io(e.to_string())
+    }
+}
+
+impl From<github_copilot_sdk::Error> for AppError {
+    fn from(e: github_copilot_sdk::Error) -> Self {
+        AppError::Agent(e.to_string())
     }
 }
 
