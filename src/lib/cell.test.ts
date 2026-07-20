@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { formatCell } from "./cell";
+import {
+  cellJson,
+  formatCell,
+  kustoLiteral,
+  rowAsJson,
+  rowAsMarkdown,
+  rowAsTsv,
+} from "./cell";
 
 describe("formatCell", () => {
   it("renders null/undefined as a muted placeholder", () => {
@@ -34,5 +41,25 @@ describe("formatCell", () => {
       dynamic: true,
     });
     expect(formatCell([1, 2, 3]).text).toBe("[1,2,3]");
+  });
+});
+
+describe("context menu cell formatting", () => {
+  it("formats safe Kusto literals", () => {
+    expect(kustoLiteral(null)).toBe("null");
+    expect(kustoLiteral(42)).toBe("42");
+    expect(kustoLiteral('a "quoted" value')).toBe('"a \\"quoted\\" value"');
+    expect(kustoLiteral({ ok: true })).toBe('dynamic("{\\"ok\\":true}")');
+  });
+
+  it("formats cells and rows for clipboard actions", () => {
+    const columns = [{ name: "State" }, { name: "Count" }];
+    const row = ["TEXAS", 2];
+    expect(cellJson(row[0])).toBe('"TEXAS"');
+    expect(rowAsTsv(row)).toBe("TEXAS\t2");
+    expect(rowAsJson(columns, row)).toBe(
+      '{\n  "State": "TEXAS",\n  "Count": 2\n}',
+    );
+    expect(rowAsMarkdown(columns, row)).toContain("| TEXAS | 2 |");
   });
 });

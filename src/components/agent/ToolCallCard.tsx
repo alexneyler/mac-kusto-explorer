@@ -5,12 +5,68 @@ import {
   LoaderCircle,
   Wrench,
 } from "lucide-react";
+import { useRef } from "react";
 
+import { copyText } from "../../lib/clipboard";
 import type { AgentMessage } from "../../types/agent";
+import {
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "../ui/ContextMenu";
 
 export function ToolCallCard({ message }: { message: AgentMessage }) {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
   return (
-    <details className="group text-xs">
+    <ContextMenu
+      content={
+        <>
+          <ContextMenuItem
+            onSelect={() =>
+              void copyText(
+                formatStructured(message.toolArguments ?? {}),
+                "Tool arguments",
+              )
+            }
+          >
+            Copy arguments
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={message.toolResult === undefined}
+            onSelect={() =>
+              void copyText(
+                formatStructured(message.toolResult),
+                "Tool result",
+              )
+            }
+          >
+            Copy result
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!message.toolError}
+            onSelect={() => void copyText(message.toolError ?? "", "Tool error")}
+          >
+            Copy error
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            onSelect={() => {
+              if (detailsRef.current) detailsRef.current.open = true;
+            }}
+          >
+            Expand
+          </ContextMenuItem>
+          <ContextMenuItem
+            onSelect={() => {
+              if (detailsRef.current) detailsRef.current.open = false;
+            }}
+          >
+            Collapse
+          </ContextMenuItem>
+        </>
+      }
+    >
+    <details ref={detailsRef} className="group text-xs">
       <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md px-1.5 py-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text)]">
         <ChevronRight
           size={13}
@@ -43,6 +99,7 @@ export function ToolCallCard({ message }: { message: AgentMessage }) {
         )}
       </div>
     </details>
+    </ContextMenu>
   );
 }
 

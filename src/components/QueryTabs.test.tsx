@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -59,5 +59,20 @@ describe("QueryTabs", () => {
     await user.type(input, "Renamed{Enter}");
     expect(screen.getByRole("tab", { name: /Renamed/ })).toBeInTheDocument();
     expect(useAppStore.getState().tabs[0].title).toBe("Renamed");
+  });
+
+  it("duplicates a tab from its context menu", async () => {
+    const tab = useAppStore.getState().tabs[0];
+    useAppStore.getState().setQuery("Events | take 10");
+    render(<QueryTabs />);
+
+    fireEvent.contextMenu(screen.getByRole("tab", { name: /Query 1/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Duplicate" }));
+
+    expect(useAppStore.getState().tabs).toHaveLength(2);
+    expect(useAppStore.getState().tabs[1]).toMatchObject({
+      title: `${tab.title} copy`,
+      query: "Events | take 10",
+    });
   });
 });

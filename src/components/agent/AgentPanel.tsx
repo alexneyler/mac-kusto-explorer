@@ -11,6 +11,7 @@ import {
 import { type FormEvent, useMemo, useState } from "react";
 
 import { buildInitialAgentContext } from "../../lib/agent/context";
+import { copyText } from "../../lib/clipboard";
 import { useAgentStore } from "../../store/agentStore";
 import { useAppStore } from "../../store/appStore";
 import { useContextStore } from "../../store/contextStore";
@@ -19,6 +20,12 @@ import { AgentModelControls } from "./AgentModelControls";
 import { AgentWorkingIndicator } from "./AgentWorkingIndicator";
 import { ToolCallCard } from "./ToolCallCard";
 import { ContextManagerDialog } from "../context/ContextManagerDialog";
+import {
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "../ui/ContextMenu";
+import type { AgentMessage } from "../../types/agent";
 
 export function AgentPanel() {
   const state = useAgentStore();
@@ -198,18 +205,11 @@ export function AgentPanel() {
               item.kind === "tool" ? (
                 <ToolCallCard key={item.id} message={item} />
               ) : (
-                <div
+                <AgentMessageCard
                   key={item.id}
-                  className={`whitespace-pre-wrap rounded-md p-2 text-xs leading-5 ${
-                    item.kind === "user"
-                      ? "ml-6 bg-[var(--color-accent-soft)]"
-                      : item.kind === "error"
-                        ? "border border-[var(--color-danger)]"
-                        : "mr-4 bg-[var(--color-bg)]"
-                  }`}
-                >
-                  {item.content}
-                </div>
+                  message={item}
+                  contextEnvelope={contextEnvelope}
+                />
               ),
             )}
             {state.sending && <AgentWorkingIndicator />}
@@ -281,4 +281,91 @@ export function AgentPanel() {
       />
     </aside>
   );
+}
+
+function AgentMessageCard({
+  message,
+  contextEnvelope,
+}: {
+  message: AgentMessage;
+  contextEnvelope: string;
+}) {
+  const code = extractKql(message.content);
+  const openQueryTab = useAppStore((state) => state.openQueryTab);
+  const setQuery = useAppStore((state) => state.setQuery);
+  const appendToQuery = useAppStore((state) => state.appendToQuery);
+  const agent = useAgentStore();
+
+  return (
+    <ContextMenu
+      content={
+        <>
+          <ContextMenuItem
+            onSelect={() => void copyText(message.content, "Message")}
+          >
+            Copy message
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!code}
+            onSelect={() => void copyText(code ?? "", "Code block")}
+          >
+            Copy code block
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            disabled={!code}
+            onSelect={() => {
+              if (code) openQueryTab({ query: code });
+            }}
+          >
+            Open KQL in new tab
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!code}
+            onSelect={() => {
+              if (code) setQuery(code);
+            }}
+          >
+            Replace active query
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!code}
+            onSelect={() => {
+              if (code) appendToQuery(code);
+            }}
+          >
+            Append to active query
+          </ContextMenuItem>
+          {message.kind === "user" && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                disabled={agent.sending || agent.lifecycleBusy}
+                onSelect={() => void agent.send(message.content, contextEnvelope)}
+              >
+                Retry request
+              </ContextMenuItem>
+            </>
+          )}
+        </>
+      }
+    >
+      <div
+        className={`whitespace-pre-wrap rounded-md p-2 text-xs leading-5 ${
+          message.kind === "user"
+            ? "ml-6 bg-[var(--color-accent-soft)]"
+            : message.kind === "error"
+              ? "border border-[var(--color-danger)]"
+              : "mr-4 bg-[var(--color-bg)]"
+        }`}
+      >
+        {message.content}
+      </div>
+    </ContextMenu>
+  );
+}
+
+function extractKql(content: string): string | null {
+  const fenced = /```(?:kusto|kql)?\s*\n([\s\S]*?)```/i.exec(content);
+  return fenced?.[1]?.trim() || null;
 }

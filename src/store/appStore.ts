@@ -91,6 +91,10 @@ interface Actions {
     name?: string;
     tenant?: string;
   }): Connection;
+  updateConnection(
+    id: string,
+    input: { name: string; tenant?: string },
+  ): void;
   removeConnection(id: string): void;
   setActiveConnection(id: string): void;
   setActiveDatabase(database: string): void;
@@ -105,6 +109,8 @@ interface Actions {
   clearError(): void;
   addTab(): string;
   closeTab(id: string): void;
+  closeOtherTabs(id: string): void;
+  closeTabsToRight(id: string): void;
   setActiveTab(id: string): void;
   renameTab(id: string, title: string): void;
   openQueryTab(input: {
@@ -272,6 +278,23 @@ export const useAppStore = create<AppStore>((set, get) => ({
     // Kick off a database listing for the freshly-selected connection.
     void get().loadDatabases(conn.id);
     return conn;
+  },
+
+  updateConnection(id, input) {
+    const name = input.name.trim();
+    if (name === "") throw new Error("Connection name cannot be empty.");
+    set((state) => ({
+      connections: state.connections.map((connection) =>
+        connection.id === id
+          ? {
+              ...connection,
+              name,
+              tenant: input.tenant?.trim() || undefined,
+            }
+          : connection,
+      ),
+    }));
+    persist(get());
   },
 
   removeConnection(id) {
@@ -453,6 +476,26 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }
       const active = remaining.find((t) => t.id === activeTabId) ?? remaining[0];
       return { tabs: remaining, activeTabId: active.id, ...mirrorOf(active) };
+    });
+    persist(get());
+  },
+
+  closeOtherTabs(id) {
+    const tab = get().tabs.find((candidate) => candidate.id === id);
+    if (!tab) return;
+    set({ tabs: [tab], activeTabId: tab.id, ...mirrorOf(tab) });
+    persist(get());
+  },
+
+  closeTabsToRight(id) {
+    const index = get().tabs.findIndex((candidate) => candidate.id === id);
+    if (index === -1) return;
+    set((state) => {
+      const tabs = state.tabs.slice(0, index + 1);
+      const active =
+        tabs.find((candidate) => candidate.id === state.activeTabId) ??
+        tabs[tabs.length - 1];
+      return { tabs, activeTabId: active.id, ...mirrorOf(active) };
     });
     persist(get());
   },

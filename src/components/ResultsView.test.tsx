@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -182,5 +182,19 @@ describe("ResultsView", () => {
     expect(await screen.findByText("2 distinct")).toBeInTheDocument();
     expect(screen.getByText("0 null")).toBeInTheDocument();
     expect(screen.getAllByText(/50\.0%/)).toHaveLength(2);
+  });
+
+  it("adds a cell-value filter from the context menu", async () => {
+    useAppStore.setState({ result: RESULT, query: "StormEvents" });
+    render(<ResultsView />);
+
+    fireEvent.contextMenu(screen.getByText("TEXAS"));
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Filter where equal" }),
+    );
+
+    expect(useAppStore.getState().query).toContain(
+      '| where State == "TEXAS"',
+    );
   });
 });
