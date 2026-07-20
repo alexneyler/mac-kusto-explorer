@@ -18,8 +18,13 @@ import {
   YAxis,
 } from "recharts";
 import { BarChart3 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { writeImage } from "@tauri-apps/plugin-clipboard-manager";
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeFile } from "@tauri-apps/plugin-fs";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { kustoLiteral } from "../lib/cell";
+import { copyText, quoteKustoIdentifier } from "../lib/clipboard";
 import {
   CHART_TYPES,
   type ChartType,
@@ -29,6 +34,14 @@ import {
   numericColumnIndices,
 } from "../lib/chart";
 import type { KustoResultSet } from "../types/kusto";
+import { errorMessage } from "../types/kusto";
+import { showToast } from "../store/toast";
+import { useAppStore } from "../store/appStore";
+import {
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "./ui/ContextMenu";
 
 // Colour-blind-friendly palette backed by theme-specific CSS tokens.
 const PALETTE = [
@@ -62,7 +75,24 @@ function columnsSignature(result: KustoResultSet): string {
   return result.columns.map((c) => `${c.name}:${c.type}`).join("|");
 }
 
-export function ChartView({ result }: { result: KustoResultSet }) {
+interface ChartFocus {
+  key: number;
+  xIndex?: number;
+  seriesIndex?: number;
+}
+
+export function ChartView({
+  result,
+  focus,
+}: {
+  result: KustoResultSet;
+  focus?: ChartFocus | null;
+}) {
+  const chartRef = useRef<HTMLDivElement>(null);
+  const appendToQuery = useAppStore((state) => state.appendToQuery);
+  const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(
+    null,
+  );
   const numericIndices = useMemo(
     () => numericColumnIndices(result.columns),
     [result.columns],
@@ -87,6 +117,18 @@ export function ChartView({ result }: { result: KustoResultSet }) {
     setSeriesIndices(config.seriesIndices);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature]);
+
+  useEffect(() => {
+    if (!focus) return;
+    if (focus.xIndex !== undefined) setXIndex(focus.xIndex);
+    if (focus.seriesIndex !== undefined) {
+      setSeriesIndices((previous) =>
+        previous.includes(focus.seriesIndex!)
+          ? previous
+          : [...previous, focus.seriesIndex!].sort((a, b) => a - b),
+      );
+    }
+  }, [focus]);
 
   const activeSeries = useMemo(
     () => (seriesIndices.length > 0 ? seriesIndices : numericIndices.slice(0, 1)),
@@ -129,6 +171,13 @@ export function ChartView({ result }: { result: KustoResultSet }) {
     );
   };
 
+  const resetConfig = () => {
+    const config = detectChartConfig(result.columns);
+    setType(config.type);
+    setXIndex(config.xIndex);
+    setSeriesIndices(config.seriesIndices);
+  };
+
   return (
     <div className="flex h-full flex-col">
       <ChartControls
@@ -141,11 +190,58 @@ export function ChartView({ result }: { result: KustoResultSet }) {
         onXChange={setXIndex}
         onToggleSeries={toggleSeries}
       />
-      <div className="min-h-0 flex-1 p-3">
-        <ResponsiveContainer width="100%" height="100%">
-          {renderChart(type, model)}
-        </ResponsiveContainer>
-      </div>
+      <ContextMenu
+        content={
+          <>
+            <ContextMenuItem
+              onSelect={() => void copyChartImage(chartRef.current)}
+            >
+              Copy chart image
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => void exportChart(chartRef.current, "png")}
+            >
+              Export PNG
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => void exportChart(chartRef.current, "svg")}
+            >
+              Export SVG
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() =>
+                void copyText(
+                  JSON.stringify(model.points, null, 2),
+                  "Chart point data",
+                )
+              }
+            >
+              Copy point data
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={selectedPointIndex === null}
+              onSelect={() => {
+                if (selectedPointIndex === null) return;
+                appendToQuery(
+                  `| where ${quoteKustoIdentifier(result.columns[xIndex]?.name ?? "x")} == ${kustoLiteral(result.rows[selectedPointIndex]?.[xIndex])}`,
+                );
+              }}
+            >
+              Filter query to selected point
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={resetConfig}>
+              Reset chart configuration
+            </ContextMenuItem>
+          </>
+        }
+      >
+        <div ref={chartRef} className="min-h-0 flex-1 p-3">
+          <ResponsiveContainer width="100%" height="100%">
+            {renderChart(type, model, setSelectedPointIndex)}
+          </ResponsiveContainer>
+        </div>
+      </ContextMenu>
       {model.capped && (
         <div className="border-t border-[var(--color-border)] bg-[var(--color-bg-panel)] px-3 py-1 text-[11px] text-[var(--color-warning)]">
           Showing first {model.points.length.toLocaleString()} of{" "}
@@ -159,9 +255,22 @@ export function ChartView({ result }: { result: KustoResultSet }) {
 function renderChart(
   type: ChartType,
   model: ReturnType<typeof buildChartModel>,
+  onSelectPoint: (index: number | null) => void,
 ) {
   const { points, seriesKeys, xName } = model;
   const margin = { top: 12, right: 20, bottom: 8, left: 8 };
+  const chartEvents = {
+    onContextMenu: (state: {
+      activeTooltipIndex: number | string | null | undefined;
+    }) => {
+      if (state.activeTooltipIndex == null) {
+        onSelectPoint(null);
+        return;
+      }
+      const index = Number(state.activeTooltipIndex);
+      onSelectPoint(Number.isInteger(index) && index >= 0 ? index : null);
+    },
+  };
   const commonAxes = (
     <>
       <CartesianGrid stroke={GRID_STROKE} strokeDasharray="3 3" />
@@ -181,7 +290,7 @@ function renderChart(
   switch (type) {
     case "column":
       return (
-        <BarChart data={points} margin={margin}>
+        <BarChart data={points} margin={margin} {...chartEvents}>
           {commonAxes}
           {seriesKeys.map((key, i) => (
             <Bar key={key} dataKey={key} fill={color(i)} />
@@ -190,7 +299,12 @@ function renderChart(
       );
     case "bar":
       return (
-        <BarChart data={points} layout="vertical" margin={margin}>
+        <BarChart
+          data={points}
+          layout="vertical"
+          margin={margin}
+          {...chartEvents}
+        >
           <CartesianGrid stroke={GRID_STROKE} strokeDasharray="3 3" />
           <XAxis type="number" tick={AXIS_TICK} stroke={GRID_STROKE} />
           <YAxis
@@ -212,7 +326,7 @@ function renderChart(
     case "area":
     case "stackedArea":
       return (
-        <AreaChart data={points} margin={margin}>
+        <AreaChart data={points} margin={margin} {...chartEvents}>
           {commonAxes}
           {seriesKeys.map((key, i) => (
             <Area
@@ -229,7 +343,7 @@ function renderChart(
     case "pie": {
       const key = seriesKeys[0];
       return (
-        <PieChart margin={margin}>
+        <PieChart margin={margin} {...chartEvents}>
           <Tooltip {...TOOLTIP_STYLE} />
           <Legend
             wrapperStyle={{ fontSize: 12, color: "var(--color-text-muted)" }}
@@ -250,7 +364,7 @@ function renderChart(
     }
     case "scatter":
       return (
-        <ScatterChart margin={margin}>
+        <ScatterChart margin={margin} {...chartEvents}>
           <CartesianGrid stroke={GRID_STROKE} strokeDasharray="3 3" />
           <XAxis
             dataKey="x"
@@ -273,7 +387,7 @@ function renderChart(
     case "time":
     default:
       return (
-        <LineChart data={points} margin={margin}>
+        <LineChart data={points} margin={margin} {...chartEvents}>
           {commonAxes}
           {seriesKeys.map((key, i) => (
             <Line
@@ -382,4 +496,94 @@ function ChartControls({
       </div>
     </div>
   );
+}
+
+async function copyChartImage(container: HTMLDivElement | null): Promise<void> {
+  try {
+    const png = await chartPng(container);
+    await writeImage(await png.arrayBuffer());
+    showToast("Chart image copied to clipboard", "success");
+  } catch (error) {
+    showToast(errorMessage(error), "error");
+  }
+}
+
+async function exportChart(
+  container: HTMLDivElement | null,
+  format: "png" | "svg",
+): Promise<void> {
+  try {
+    const svg = chartSvg(container);
+    const path = await save({
+      title: `Export chart as ${format.toUpperCase()}`,
+      defaultPath: `kusto-chart.${format}`,
+      filters: [
+        {
+          name: format === "svg" ? "SVG image" : "PNG image",
+          extensions: [format],
+        },
+      ],
+    });
+    if (!path) return;
+    const blob =
+      format === "svg"
+        ? new Blob([svg], { type: "image/svg+xml;charset=utf-8" })
+        : await chartPng(container);
+    await writeFile(path, new Uint8Array(await blob.arrayBuffer()));
+    showToast(`Chart exported as ${format.toUpperCase()}`, "success");
+  } catch (error) {
+    showToast(errorMessage(error), "error");
+  }
+}
+
+function chartSvg(container: HTMLDivElement | null): string {
+  const source = container?.querySelector("svg");
+  if (!source) throw new Error("The chart is not ready to export.");
+  const bounds = source.getBoundingClientRect();
+  const clone = source.cloneNode(true) as SVGSVGElement;
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("width", String(Math.max(1, bounds.width)));
+  clone.setAttribute("height", String(Math.max(1, bounds.height)));
+  return new XMLSerializer().serializeToString(clone);
+}
+
+async function chartPng(container: HTMLDivElement | null): Promise<Blob> {
+  const svg = chartSvg(container);
+  const source = container?.querySelector("svg");
+  const bounds = source?.getBoundingClientRect();
+  const width = Math.max(1, Math.round(bounds?.width ?? 1));
+  const height = Math.max(1, Math.round(bounds?.height ?? 1));
+  const url = URL.createObjectURL(
+    new Blob([svg], { type: "image/svg+xml;charset=utf-8" }),
+  );
+  try {
+    const image = await loadImage(url);
+    const canvas = document.createElement("canvas");
+    canvas.width = width * 2;
+    canvas.height = height * 2;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Unable to create chart image.");
+    context.scale(2, 2);
+    context.fillStyle = getComputedStyle(container!).backgroundColor;
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+    return await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob(
+        (blob) =>
+          blob ? resolve(blob) : reject(new Error("Unable to encode chart.")),
+        "image/png",
+      ),
+    );
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Unable to render chart image."));
+    image.src = url;
+  });
 }

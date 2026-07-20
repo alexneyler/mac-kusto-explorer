@@ -44,6 +44,7 @@ import {
   type FolderEntity,
   type SchemaFolder,
 } from "../lib/schemaFolders";
+import { copyText, qualifiedName, quoteKustoIdentifier } from "../lib/clipboard";
 import { schemaKey, useAppStore } from "../store/appStore";
 import type {
   Connection,
@@ -55,6 +56,12 @@ import type {
   SchemaEntityKind,
 } from "../types/agent";
 import { ContextEditorDialog } from "./context/ContextEditorDialog";
+import { AddConnectionDialog } from "./AddConnectionDialog";
+import {
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "./ui/ContextMenu";
 
 /** Render a label with the query's matching substrings highlighted. */
 function HighlightedLabel({ text, query }: { text: string; query: string }) {
@@ -89,6 +96,7 @@ function TreeRow({
   inlineHint = true,
   active,
   actions,
+  contextMenu,
   onClick,
   onDoubleClick,
 }: {
@@ -102,6 +110,7 @@ function TreeRow({
   inlineHint?: boolean;
   active?: boolean;
   actions?: ReactNode;
+  contextMenu?: ReactNode;
   onClick?: () => void;
   onDoubleClick?: () => void;
 }) {
@@ -116,9 +125,8 @@ function TreeRow({
     setTooltipPosition({ left: bounds.right + 8, top: bounds.top - 4 });
   }
 
-  return (
-    <>
-      <div
+  const row = (
+    <div
         role="treeitem"
         aria-expanded={expandable ? expanded : undefined}
         aria-selected={active}
@@ -129,7 +137,7 @@ function TreeRow({
         onClick={onClick}
         onDoubleClick={onDoubleClick}
         title={inlineHint ? hint : undefined}
-      >
+    >
         <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-[var(--color-text-faint)]">
           {expandable ? (
             expanded ? (
@@ -168,7 +176,16 @@ function TreeRow({
           </button>
         )}
         {actions && <span className="flex shrink-0 items-center">{actions}</span>}
-      </div>
+    </div>
+  );
+
+  return (
+    <>
+      {contextMenu ? (
+        <ContextMenu content={contextMenu}>{row}</ContextMenu>
+      ) : (
+        row
+      )}
       {tooltipPosition &&
         hint &&
         createPortal(
@@ -258,6 +275,7 @@ function TableNode({
   onEditContext: (target: AgentContextTarget) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const openQueryTab = useAppStore((s) => s.openQueryTab);
   const appendToQuery = useAppStore((s) => s.appendToQuery);
 
   const filtering = isFiltering(filter);
@@ -285,6 +303,47 @@ function TableNode({
             onClick={() => onEditContext(contextTarget)}
           />
         }
+        contextMenu={
+          <>
+            <ContextMenuItem
+              onSelect={() =>
+                openQueryTab({
+                  title: `${table.name} sample`,
+                  query: `${quoteKustoIdentifier(table.name)}\n| take 100`,
+                  connectionId: contextTarget.clusterId,
+                  database: contextTarget.database,
+                })
+              }
+            >
+              Open sample query
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onSelect={() => void copyText(table.name, "Table name")}
+            >
+              Copy name
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() =>
+                void copyText(
+                  qualifiedName(contextTarget.database ?? "", table.name),
+                  "Qualified table name",
+                )
+              }
+            >
+              Copy qualified name
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => void copyText(tableSchemaText(table), "Table schema")}
+            >
+              Copy schema
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => onEditContext(contextTarget)}>
+              Edit personal context
+            </ContextMenuItem>
+          </>
+        }
         onClick={() => setExpanded((v) => !v)}
         onDoubleClick={() => appendToQuery(table.name)}
       />
@@ -297,6 +356,22 @@ function TableNode({
             label={col.name}
             highlightQuery={filter}
             hint={col.type}
+            contextMenu={
+              <>
+                <ContextMenuItem
+                  onSelect={() => void copyText(col.name, "Column name")}
+                >
+                  Copy name
+                </ContextMenuItem>
+                <ContextMenuItem
+                  onSelect={() =>
+                    void copyText(`${col.name} (${col.type})`, "Column name and type")
+                  }
+                >
+                  Copy name and type
+                </ContextMenuItem>
+              </>
+            }
           />
         ))}
     </div>
@@ -307,11 +382,16 @@ function FunctionNode({
   fn,
   depth,
   filter,
+  connectionId,
+  database,
 }: {
   fn: FunctionSchema;
   depth: number;
   filter: string;
+  connectionId: string;
+  database: string;
 }) {
+  const openQueryTab = useAppStore((state) => state.openQueryTab);
   return (
     <TreeRow
       depth={depth}
@@ -322,6 +402,40 @@ function FunctionNode({
       highlightQuery={filter}
       hint={fn.docString ?? undefined}
       inlineHint={false}
+      contextMenu={
+        <>
+          <ContextMenuItem
+            onSelect={() =>
+              openQueryTab({
+                title: fn.name,
+                query: `${quoteKustoIdentifier(fn.name)}()`,
+                connectionId,
+                database,
+              })
+            }
+          >
+            Open call in new query
+          </ContextMenuItem>
+          <ContextMenuItem
+            onSelect={() =>
+              openQueryTab({
+                title: `${fn.name} definition`,
+                query: `.show function ${quoteKustoIdentifier(fn.name)}`,
+                connectionId,
+                database,
+              })
+            }
+          >
+            Show definition
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            onSelect={() => void copyText(fn.name, "Function name")}
+          >
+            Copy name
+          </ContextMenuItem>
+        </>
+      }
     />
   );
 }
@@ -331,14 +445,26 @@ function SchemaFolderNode<T extends FolderEntity>({
   depth,
   filter,
   renderEntity,
+  expandAllVersion = 0,
+  collapseAllVersion = 0,
 }: {
   folder: SchemaFolder<T>;
   depth: number;
   filter: string;
   renderEntity: (entity: T, depth: number) => ReactNode;
+  expandAllVersion?: number;
+  collapseAllVersion?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   const showChildren = isFiltering(filter) || expanded;
+
+  useEffect(() => {
+    if (expandAllVersion > 0) setExpanded(true);
+  }, [expandAllVersion]);
+
+  useEffect(() => {
+    if (collapseAllVersion > 0) setExpanded(false);
+  }, [collapseAllVersion]);
 
   return (
     <div role="group">
@@ -349,6 +475,22 @@ function SchemaFolderNode<T extends FolderEntity>({
         icon={<Folder size={13} className="text-[var(--color-text-muted)]" />}
         label={folder.name}
         highlightQuery={filter}
+        contextMenu={
+          <>
+            <ContextMenuItem onSelect={() => setExpanded(true)}>
+              Expand folder
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => setExpanded(false)}>
+              Collapse folder
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onSelect={() => void copyText(folder.path, "Folder path")}
+            >
+              Copy folder path
+            </ContextMenuItem>
+          </>
+        }
         onClick={() => setExpanded((value) => !value)}
       />
       {showChildren && (
@@ -360,6 +502,8 @@ function SchemaFolderNode<T extends FolderEntity>({
               depth={depth + 1}
               filter={filter}
               renderEntity={renderEntity}
+              expandAllVersion={expandAllVersion}
+              collapseAllVersion={collapseAllVersion}
             />
           ))}
           {folder.entities.map((entity) => renderEntity(entity, depth + 1))}
@@ -383,6 +527,8 @@ function EntityCategoryNode<T extends FolderEntity>({
   renderEntity: (entity: T, depth: number) => ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [expandAllVersion, setExpandAllVersion] = useState(0);
+  const [collapseAllVersion, setCollapseAllVersion] = useState(0);
   const filtering = isFiltering(filter);
   const showChildren = filtering ? entities.length > 0 : expanded;
   const grouped = groupByFolder(entities);
@@ -397,6 +543,26 @@ function EntityCategoryNode<T extends FolderEntity>({
         expanded={showChildren}
         icon={<Folder size={13} className="text-[var(--color-accent)]" />}
         label={label}
+        contextMenu={
+          <>
+            <ContextMenuItem
+              onSelect={() => {
+                setExpanded(true);
+                setExpandAllVersion((version) => version + 1);
+              }}
+            >
+              Expand all
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => {
+                setExpanded(false);
+                setCollapseAllVersion((version) => version + 1);
+              }}
+            >
+              Collapse all
+            </ContextMenuItem>
+          </>
+        }
         onClick={() => setExpanded((value) => !value)}
       />
       {showChildren && (
@@ -408,6 +574,8 @@ function EntityCategoryNode<T extends FolderEntity>({
               depth={depth + 1}
               filter={filter}
               renderEntity={renderEntity}
+              expandAllVersion={expandAllVersion}
+              collapseAllVersion={collapseAllVersion}
             />
           ))}
           {grouped.entities.map((entity) => renderEntity(entity, depth + 1))}
@@ -434,6 +602,8 @@ function DatabaseNode({
   const activeDatabase = useAppStore((s) => s.activeDatabase);
   const activeConnectionId = useAppStore((s) => s.activeConnectionId);
   const setActiveDatabase = useAppStore((s) => s.setActiveDatabase);
+  const setActiveConnection = useAppStore((s) => s.setActiveConnection);
+  const openQueryTab = useAppStore((s) => s.openQueryTab);
   const loadSchema = useAppStore((s) => s.loadSchema);
   const refreshSchema = useAppStore((s) => s.refreshSchema);
   const schema = useAppStore((s) => s.schemaByKey[schemaKey(conn.id, database)]);
@@ -498,6 +668,64 @@ function DatabaseNode({
             />
           </>
         }
+        contextMenu={
+          <>
+            <ContextMenuItem
+              onSelect={() =>
+                openQueryTab({
+                  query: "",
+                  connectionId: conn.id,
+                  database,
+                })
+              }
+            >
+              New query here
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={isActive}
+              onSelect={() => {
+                setActiveConnection(conn.id);
+                setActiveDatabase(database);
+              }}
+            >
+              Set active
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => void refreshSchema(conn.id, database)}
+            >
+              Refresh schema
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onSelect={() => void copyText(database, "Database name")}
+            >
+              Copy name
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() =>
+                void copyText(
+                  qualifiedName(conn.name, database),
+                  "Qualified database name",
+                )
+              }
+            >
+              Copy qualified name
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onSelect={() =>
+                onEditContext({
+                  scope: "database",
+                  clusterId: conn.id,
+                  clusterName: conn.name,
+                  database,
+                })
+              }
+            >
+              Edit personal context
+            </ContextMenuItem>
+          </>
+        }
         onClick={handleClick}
       />
       {showChildren && (
@@ -523,6 +751,8 @@ function DatabaseNode({
                     fn={fn}
                     depth={entityDepth}
                     filter={filter}
+                    connectionId={conn.id}
+                    database={database}
                   />
                 )}
               />
@@ -617,15 +847,19 @@ function ConnectionNode({
   conn,
   filter,
   onEditContext,
+  onEditConnection,
 }: {
   conn: Connection;
   filter: string;
   onEditContext: (target: AgentContextTarget) => void;
+  onEditConnection: (connection: Connection) => void;
 }) {
   const activeConnectionId = useAppStore((s) => s.activeConnectionId);
   const setActiveConnection = useAppStore((s) => s.setActiveConnection);
   const loadDatabases = useAppStore((s) => s.loadDatabases);
   const refreshDatabases = useAppStore((s) => s.refreshDatabases);
+  const openQueryTab = useAppStore((s) => s.openQueryTab);
+  const removeConnection = useAppStore((s) => s.removeConnection);
   const databases = useAppStore((s) => s.databasesByConn[conn.id]);
   const schemaByKey = useAppStore((s) => s.schemaByKey);
   const loading = useAppStore((s) => s.loadingDbByConn[conn.id]);
@@ -688,6 +922,67 @@ function ConnectionNode({
               label={`Refresh ${conn.name} databases`}
               onRefresh={() => void refreshDatabases(conn.id)}
             />
+          </>
+        }
+        contextMenu={
+          <>
+            <ContextMenuItem
+              onSelect={() =>
+                openQueryTab({
+                  query: "",
+                  connectionId: conn.id,
+                  database: null,
+                })
+              }
+            >
+              New query
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => void refreshDatabases(conn.id)}
+            >
+              Refresh databases
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onSelect={() => void copyText(conn.name, "Connection name")}
+            >
+              Copy cluster name
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => void copyText(conn.clusterUrl, "Cluster URL")}
+            >
+              Copy cluster URL
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => onEditConnection(conn)}>
+              Edit connection
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() =>
+                onEditContext({
+                  scope: "cluster",
+                  clusterId: conn.id,
+                  clusterName: conn.name,
+                })
+              }
+            >
+              Edit personal context
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              danger
+              onSelect={() => {
+                if (
+                  window.confirm(
+                    `Remove the connection “${conn.name}”? Query tabs will be detached from it.`,
+                  )
+                ) {
+                  removeConnection(conn.id);
+                }
+              }}
+            >
+              Remove connection…
+            </ContextMenuItem>
           </>
         }
         onClick={handleClick}
@@ -787,6 +1082,8 @@ export function ConnectionsSidebar() {
   const [filter, setFilter] = useState("");
   const [contextTarget, setContextTarget] =
     useState<AgentContextTarget | null>(null);
+  const [editingConnection, setEditingConnection] =
+    useState<Connection | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   // Ctrl+F / ⌘+F focuses the schema filter (scoped to the app window).
@@ -854,6 +1151,7 @@ export function ConnectionsSidebar() {
               conn={c}
               filter={filter}
               onEditContext={setContextTarget}
+              onEditConnection={setEditingConnection}
             />
           ))
         )}
@@ -863,6 +1161,21 @@ export function ConnectionsSidebar() {
         target={contextTarget}
         onClose={() => setContextTarget(null)}
       />
+      <AddConnectionDialog
+        open={editingConnection !== null}
+        connection={editingConnection}
+        onClose={() => setEditingConnection(null)}
+      />
     </div>
   );
+}
+
+function tableSchemaText(table: TableSchema): string {
+  const columns = table.columns
+    .map(
+      (column) =>
+        `  ${quoteKustoIdentifier(column.name)}: ${column.type}`,
+    )
+    .join(",\n");
+  return `.create table ${quoteKustoIdentifier(table.name)} (\n${columns}\n)`;
 }

@@ -6,7 +6,10 @@ import { cleanup } from "@testing-library/react";
 // backend. Individual tests can override `@tauri-apps/api/core`'s `invoke`
 // (or mock `../lib/tauri`) for specific behavior.
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ writeText: vi.fn() }));
+vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
+  writeText: vi.fn(),
+  writeImage: vi.fn(),
+}));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ save: vi.fn(), open: vi.fn() }));
 
 afterEach(() => {

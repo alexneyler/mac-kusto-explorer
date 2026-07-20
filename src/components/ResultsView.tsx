@@ -21,12 +21,31 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
-import { formatCell } from "../lib/cell";
+import { buildInitialAgentContext } from "../lib/agent/context";
+import { copyShare, exportResult } from "../lib/actions";
+import {
+  cellJson,
+  formatCell,
+  kustoLiteral,
+  rowAsJson,
+  rowAsMarkdown,
+  rowAsTsv,
+} from "../lib/cell";
+import { copyText, quoteKustoIdentifier } from "../lib/clipboard";
+import { isNumericType } from "../lib/chart";
 import { columnDistribution, emptyColumnIndexes } from "../lib/columnStats";
 import { cn, formatDuration } from "../lib/utils";
+import { useAgentStore } from "../store/agentStore";
 import { useAppStore } from "../store/appStore";
+import { useContextStore } from "../store/contextStore";
 import { errorMessage, isAppError } from "../types/kusto";
 import { ChartView } from "./ChartView";
+import {
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "./ui/ContextMenu";
+import { Modal } from "./ui/Modal";
 
 type Row = unknown[];
 type ResultView = "table" | "chart";
@@ -51,22 +70,54 @@ export function ResultsView() {
 
   if (error) {
     const kind = isAppError(error) ? error.kind : "error";
+    const message = errorMessage(error);
+    const agent = useAgentStore.getState();
     return (
       <div className="flex h-full flex-col">
-        <div className="m-3 flex items-start gap-2 rounded-md border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 p-3">
-          <AlertTriangle
-            size={16}
-            className="mt-0.5 shrink-0 text-[var(--color-danger)]"
-          />
-          <div className="min-w-0">
-            <div className="text-xs font-semibold uppercase tracking-wide text-[var(--color-danger)]">
-              {kind} error
-            </div>
-            <div className="mt-1 whitespace-pre-wrap break-words font-[var(--font-mono)] text-xs text-[var(--color-text)]">
-              {errorMessage(error)}
+        <ContextMenu
+          content={
+            <>
+              <ContextMenuItem
+                onSelect={() => void copyText(message, "Error")}
+              >
+                Copy error
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={useAppStore.getState().running}
+                onSelect={() => void useAppStore.getState().runActiveQuery()}
+              >
+                Retry query
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={!agent.isAuthenticated || agent.sending}
+                onSelect={() => diagnoseError(message)}
+              >
+                Ask Agent to diagnose
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                onSelect={() => useAppStore.getState().clearError()}
+              >
+                Clear error
+              </ContextMenuItem>
+            </>
+          }
+        >
+          <div className="m-3 flex items-start gap-2 rounded-md border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 p-3">
+            <AlertTriangle
+              size={16}
+              className="mt-0.5 shrink-0 text-[var(--color-danger)]"
+            />
+            <div className="min-w-0">
+              <div className="text-xs font-semibold uppercase tracking-wide text-[var(--color-danger)]">
+                {kind} error
+              </div>
+              <div className="mt-1 whitespace-pre-wrap break-words font-[var(--font-mono)] text-xs text-[var(--color-text)]">
+                {message}
+              </div>
             </div>
           </div>
-        </div>
+        </ContextMenu>
       </div>
     );
   }
@@ -92,6 +143,12 @@ function ResultsPanel({
   const [view, setView] = useState<ResultView>("table");
   const [hideEmpty, setHideEmpty] = useState(false);
   const [wrap, setWrap] = useState(false);
+  const [hiddenColumns, setHiddenColumns] = useState<Set<number>>(new Set());
+  const [chartFocus, setChartFocus] = useState<{
+    key: number;
+    xIndex?: number;
+    seriesIndex?: number;
+  } | null>(null);
 
   const emptyCols = useMemo(
     () => new Set(emptyColumnIndexes(result)),
@@ -107,17 +164,34 @@ function ResultsPanel({
             hideEmpty={hideEmpty}
             wrap={wrap}
             emptyCols={emptyCols}
+            hiddenColumns={hiddenColumns}
+            onHiddenColumnsChange={setHiddenColumns}
+            onHideEmptyChange={setHideEmpty}
+            onWrapChange={setWrap}
+            onSwitchToChart={() => setView("chart")}
+            onUseAsChartAxis={(index) => {
+              setChartFocus({ key: Date.now(), xIndex: index });
+              setView("chart");
+            }}
+            onUseAsChartSeries={(index) => {
+              setChartFocus({ key: Date.now(), seriesIndex: index });
+              setView("chart");
+            }}
           />
         ) : (
-          <ChartView result={result} />
+          <ChartView result={result} focus={chartFocus} />
         )}
       </div>
       <ResultsStatusBar
         rowCount={result.row_count}
         columnCount={
           view === "table" && hideEmpty
-            ? result.columns.length - emptyCols.size
-            : result.columns.length
+            ? result.columns.filter(
+                (_, index) =>
+                  !emptyCols.has(index) && !hiddenColumns.has(index),
+              ).length
+            : result.columns.filter((_, index) => !hiddenColumns.has(index))
+                .length
         }
         elapsedMs={result.elapsed_ms}
         view={view}
@@ -151,14 +225,35 @@ function ResultsGrid({
   hideEmpty,
   wrap,
   emptyCols,
+  hiddenColumns,
+  onHiddenColumnsChange,
+  onHideEmptyChange,
+  onWrapChange,
+  onSwitchToChart,
+  onUseAsChartAxis,
+  onUseAsChartSeries,
 }: {
   result: Result;
   hideEmpty: boolean;
   wrap: boolean;
   emptyCols: Set<number>;
+  hiddenColumns: Set<number>;
+  onHiddenColumnsChange: (columns: Set<number>) => void;
+  onHideEmptyChange: (hide: boolean) => void;
+  onWrapChange: (wrap: boolean) => void;
+  onSwitchToChart: () => void;
+  onUseAsChartAxis: (index: number) => void;
+  onUseAsChartSeries: (index: number) => void;
 }) {
   const [sorting, setSorting] = useState<SortingState>([]);
+  const [exploreColumn, setExploreColumn] = useState<number | null>(null);
+  const [inspectedCell, setInspectedCell] = useState<{
+    title: string;
+    value: string;
+  } | null>(null);
   const parentRef = useRef<HTMLDivElement>(null);
+  const appendToQuery = useAppStore((state) => state.appendToQuery);
+  const openQueryTab = useAppStore((state) => state.openQueryTab);
 
   const columns = useMemo<ColumnDef<Row>[]>(
     () =>
@@ -173,13 +268,14 @@ function ResultsGrid({
   );
 
   const columnVisibility = useMemo<VisibilityState>(() => {
-    if (!hideEmpty) return {};
     const vis: VisibilityState = {};
     result.columns.forEach((col, i) => {
-      if (emptyCols.has(i)) vis[`${i}-${col.name}`] = false;
+      if (hiddenColumns.has(i) || (hideEmpty && emptyCols.has(i))) {
+        vis[`${i}-${col.name}`] = false;
+      }
     });
     return vis;
-  }, [hideEmpty, emptyCols, result.columns]);
+  }, [hideEmpty, emptyCols, hiddenColumns, result.columns]);
 
   const table = useReactTable({
     data: result.rows as Row[],
@@ -212,15 +308,57 @@ function ResultsGrid({
       ? totalSize - virtualRows[virtualRows.length - 1].end
       : 0;
 
-  return (
+  const gridMenu = (
+    <>
+      <ContextMenuItem onSelect={() => void copyShare("results")}>
+        Copy all as Markdown
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => void copyShare("tsv")}>
+        Copy all as TSV
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => void copyShare("json")}>
+        Copy all as JSON
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => void copyShare("datatable")}>
+        Copy all as datatable()
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onSelect={() => void exportResult("csv")}>
+        Export as CSV
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => void exportResult("tsv")}>
+        Export as TSV
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => void exportResult("json")}>
+        Export as JSON
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem
+        disabled={emptyCols.size === 0}
+        onSelect={() => onHideEmptyChange(!hideEmpty)}
+      >
+        {hideEmpty ? "Show empty columns" : "Hide empty columns"}
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => onWrapChange(!wrap)}>
+        {wrap ? "Disable text wrapping" : "Wrap text"}
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={onSwitchToChart}>
+        Switch to chart
+      </ContextMenuItem>
+    </>
+  );
+
+  const grid = (
     <div ref={parentRef} className="h-full overflow-auto">
       <table className="w-full border-collapse text-xs">
           <thead className="sticky top-0 z-10 bg-[var(--color-bg-elevated)]">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
-                <th className="w-10 border-b border-[var(--color-border)] px-2 py-1.5 text-right font-normal text-[var(--color-text-faint)]">
-                  #
-                </th>
+                <ContextMenu content={gridMenu}>
+                  <th className="w-10 border-b border-[var(--color-border)] px-2 py-1.5 text-right font-normal text-[var(--color-text-faint)]">
+                    #
+                  </th>
+                </ContextMenu>
                 {hg.headers.map((header) => {
                   const meta = header.column.columnDef.meta as {
                     type?: string;
@@ -229,10 +367,107 @@ function ResultsGrid({
                   const sorted = header.column.getIsSorted();
                   const name = String(header.column.columnDef.header);
                   return (
-                    <th
+                    <ContextMenu
                       key={header.id}
-                      className="select-none border-b border-r border-[var(--color-border)] px-2 py-1.5 text-left font-semibold"
+                      content={
+                        <>
+                          <ContextMenuItem
+                            onSelect={() => header.column.toggleSorting(false)}
+                          >
+                            Sort ascending
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onSelect={() => header.column.toggleSorting(true)}
+                          >
+                            Sort descending
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={!sorted}
+                            onSelect={() => header.column.clearSorting()}
+                          >
+                            Clear sort
+                          </ContextMenuItem>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem
+                            onSelect={() => void copyText(name, "Column name")}
+                          >
+                            Copy column name
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onSelect={() =>
+                              void copyText(
+                                result.rows
+                                  .map((row) => formatCell(row[meta.index]).text)
+                                  .join("\n"),
+                                "Column values",
+                              )
+                            }
+                          >
+                            Copy column values
+                          </ContextMenuItem>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem
+                            onSelect={() =>
+                              onHiddenColumnsChange(
+                                new Set([...hiddenColumns, meta.index]),
+                              )
+                            }
+                          >
+                            Hide column
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onSelect={() =>
+                              onHiddenColumnsChange(
+                                new Set(
+                                  result.columns
+                                    .map((_, index) => index)
+                                    .filter((index) => index !== meta.index),
+                                ),
+                              )
+                            }
+                          >
+                            Hide other columns
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={hiddenColumns.size === 0}
+                            onSelect={() => onHiddenColumnsChange(new Set())}
+                          >
+                            Show all columns
+                          </ContextMenuItem>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem
+                            onSelect={() => setExploreColumn(meta.index)}
+                          >
+                            Explore distribution
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onSelect={() => {
+                              const state = useAppStore.getState();
+                              openQueryTab({
+                                title: `${name} summary`,
+                                query: `${state.query.trim()}\n| summarize count() by ${quoteKustoIdentifier(name)}`,
+                                connectionId: state.activeConnectionId,
+                                database: state.activeDatabase,
+                              });
+                            }}
+                          >
+                            Summarize column
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onSelect={() => onUseAsChartAxis(meta.index)}
+                          >
+                            Use as chart axis
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={!meta.type || !isNumericType(meta.type)}
+                            onSelect={() => onUseAsChartSeries(meta.index)}
+                          >
+                            Use as chart series
+                          </ContextMenuItem>
+                        </>
+                      }
                     >
+                    <th className="select-none border-b border-r border-[var(--color-border)] px-2 py-1.5 text-left font-semibold">
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
@@ -260,6 +495,7 @@ function ResultsGrid({
                         />
                       </div>
                     </th>
+                    </ContextMenu>
                   );
                 })}
               </tr>
@@ -281,33 +517,130 @@ function ResultsGrid({
                   className="hover:bg-[var(--color-bg-hover)]"
                   style={wrap ? undefined : { height: ROW_HEIGHT }}
                 >
-                  <td
-                    className={cn(
-                      "border-b border-[var(--color-border)] px-2 text-right text-[var(--color-text-faint)]",
-                      wrap ? "align-top" : "align-middle",
-                    )}
+                  <ContextMenu
+                    content={
+                      <>
+                        <ContextMenuItem
+                          onSelect={() =>
+                            void copyText(rowAsTsv(row.original), "Row")
+                          }
+                        >
+                          Copy row as TSV
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          onSelect={() =>
+                            void copyText(
+                              rowAsJson(result.columns, row.original),
+                              "Row",
+                            )
+                          }
+                        >
+                          Copy row as JSON
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          onSelect={() =>
+                            void copyText(
+                              rowAsMarkdown(result.columns, row.original),
+                              "Row",
+                            )
+                          }
+                        >
+                          Copy row as Markdown
+                        </ContextMenuItem>
+                      </>
+                    }
                   >
-                    {vr.index + 1}
-                  </td>
+                    <td
+                      className={cn(
+                        "border-b border-[var(--color-border)] px-2 text-right text-[var(--color-text-faint)]",
+                        wrap ? "align-top" : "align-middle",
+                      )}
+                    >
+                      {vr.index + 1}
+                    </td>
+                  </ContextMenu>
                   {row.getVisibleCells().map((cell) => {
                     const display = formatCell(cell.getValue());
+                    const meta = cell.column.columnDef.meta as {
+                      index: number;
+                    };
+                    const column = result.columns[meta.index];
+                    const value = cell.getValue();
                     return (
-                      <td
+                      <ContextMenu
                         key={cell.id}
-                        className={cn(
-                          "max-w-[420px] border-b border-r border-[var(--color-border)] px-2",
-                          wrap
-                            ? "whitespace-pre-wrap break-words align-top"
-                            : "truncate align-middle",
-                          display.numeric && "text-right tabular-nums",
-                          display.isNull &&
-                            "italic text-[var(--color-text-faint)]",
-                          display.dynamic && "font-[var(--font-mono)]",
-                        )}
-                        title={display.text}
+                        content={
+                          <>
+                            <ContextMenuItem
+                              onSelect={() =>
+                                void copyText(display.text, "Cell value")
+                              }
+                            >
+                              Copy value
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              onSelect={() =>
+                                void copyText(cellJson(value), "Cell JSON")
+                              }
+                            >
+                              Copy value as JSON
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              onSelect={() =>
+                                void copyText(rowAsTsv(row.original), "Row")
+                              }
+                            >
+                              Copy row
+                            </ContextMenuItem>
+                            <ContextMenuSeparator />
+                            <ContextMenuItem
+                              onSelect={() =>
+                                appendToQuery(
+                                  `| where ${quoteKustoIdentifier(column.name)} == ${kustoLiteral(value)}`,
+                                )
+                              }
+                            >
+                              Filter where equal
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              onSelect={() =>
+                                appendToQuery(
+                                  `| where ${quoteKustoIdentifier(column.name)} != ${kustoLiteral(value)}`,
+                                )
+                              }
+                            >
+                              Filter where not equal
+                            </ContextMenuItem>
+                            <ContextMenuSeparator />
+                            <ContextMenuItem
+                              onSelect={() =>
+                                setInspectedCell({
+                                  title: `${column.name} value`,
+                                  value: cellJson(value),
+                                })
+                              }
+                            >
+                              Inspect formatted value
+                            </ContextMenuItem>
+                          </>
+                        }
                       >
-                        {display.text}
-                      </td>
+                        <td
+                          className={cn(
+                            "max-w-[420px] border-b border-r border-[var(--color-border)] px-2",
+                            wrap
+                              ? "whitespace-pre-wrap break-words align-top"
+                              : "truncate align-middle",
+                            display.numeric && "text-right tabular-nums",
+                            display.isNull &&
+                              "italic text-[var(--color-text-faint)]",
+                            display.dynamic && "font-[var(--font-mono)]",
+                          )}
+                          title={display.text}
+                        >
+                          {display.text}
+                        </td>
+                      </ContextMenu>
                     );
                   })}
                 </tr>
@@ -321,6 +654,38 @@ function ResultsGrid({
           </tbody>
         </table>
     </div>
+  );
+
+  return (
+    <>
+        {grid}
+        <Modal
+          open={exploreColumn !== null}
+          onClose={() => setExploreColumn(null)}
+          title={
+            exploreColumn === null
+              ? "Column distribution"
+              : `Column distribution: ${result.columns[exploreColumn]?.name ?? ""}`
+          }
+        >
+          {exploreColumn !== null && (
+            <ColumnDistributionPanel
+              result={result}
+              columnIndex={exploreColumn}
+              name={result.columns[exploreColumn]?.name ?? ""}
+            />
+          )}
+        </Modal>
+        <Modal
+          open={inspectedCell !== null}
+          onClose={() => setInspectedCell(null)}
+          title={inspectedCell?.title ?? "Cell value"}
+        >
+          <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs">
+            {inspectedCell?.value}
+          </pre>
+        </Modal>
+    </>
   );
 }
 
@@ -538,5 +903,29 @@ function ViewToggle({
 function StatusFrame({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-full items-center justify-center p-6">{children}</div>
+  );
+}
+
+function diagnoseError(message: string): void {
+  const app = useAppStore.getState();
+  const activeTab =
+    app.tabs.find((tab) => tab.id === app.activeTabId) ?? app.tabs[0];
+  if (!activeTab) return;
+  const connection =
+    app.connections.find(
+      (candidate) => candidate.id === activeTab.connectionId,
+    ) ?? null;
+  const agent = useAgentStore.getState();
+  if (!agent.isAuthenticated || agent.sending) return;
+
+  agent.setPanelOpen(true);
+  const context = buildInitialAgentContext({
+    tab: activeTab,
+    connection,
+    entries: useContextStore.getState().entries,
+  });
+  void agent.send(
+    `Diagnose this query error and suggest a corrected KQL query:\n\n${message}`,
+    context,
   );
 }

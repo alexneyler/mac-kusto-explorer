@@ -26,6 +26,7 @@ export function formatCell(value: unknown): CellDisplay {
       dynamic: false,
     };
   }
+
   if (typeof value === "string") {
     return { text: value, numeric: false, isNull: false, dynamic: false };
   }
@@ -36,4 +37,47 @@ export function formatCell(value: unknown): CellDisplay {
     isNull: false,
     dynamic: true,
   };
+}
+
+export function cellJson(value: unknown): string {
+  return JSON.stringify(value, null, 2) ?? "null";
+}
+
+export function kustoLiteral(value: unknown): string {
+  if (value === null || value === undefined) return "null";
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (typeof value === "string") {
+    return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  }
+  return `dynamic(${JSON.stringify(JSON.stringify(value))})`;
+}
+
+export function rowAsTsv(row: unknown[]): string {
+  return row
+    .map((value) => formatCell(value).text.replace(/\t/g, " "))
+    .join("\t");
+}
+
+export function rowAsJson(columns: { name: string }[], row: unknown[]): string {
+  return JSON.stringify(
+    Object.fromEntries(columns.map((column, index) => [column.name, row[index]])),
+    null,
+    2,
+  );
+}
+
+export function rowAsMarkdown(
+  columns: { name: string }[],
+  row: unknown[],
+): string {
+  const escape = (value: string) =>
+    value.replace(/\|/g, "\\|").replace(/\n/g, " ");
+  const header = `| ${columns.map((column) => escape(column.name)).join(" | ")} |`;
+  const separator = `| ${columns.map(() => "---").join(" | ")} |`;
+  const values = `| ${row
+    .map((value) => escape(formatCell(value).text))
+    .join(" | ")} |`;
+  return [header, separator, values].join("\n");
 }

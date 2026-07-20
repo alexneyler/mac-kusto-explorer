@@ -26,6 +26,7 @@ chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
 github-copilot-sdk = { git = "https://github.com/github/copilot-sdk", rev = "5adb51b9e2ac50ad4876e756fa8c05549c1490fd", version = "0.0.0-dev", features = ["bundled-cli", "derive"] }
 tempfile = "3"
+tauri-plugin-fs = "2"
 
 [dev-dependencies]
 httpmock = "0.7"

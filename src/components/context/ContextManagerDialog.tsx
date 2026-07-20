@@ -1,9 +1,16 @@
 import { useState } from "react";
 
 import { useContextStore } from "../../store/contextStore";
+import { useAppStore } from "../../store/appStore";
+import { copyText } from "../../lib/clipboard";
 import type { AgentContextEntry } from "../../types/agent";
 import { ContextEditorDialog } from "./ContextEditorDialog";
 import { Modal } from "../ui/Modal";
+import {
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "../ui/ContextMenu";
 
 interface ContextManagerDialogProps {
   open: boolean;
@@ -16,6 +23,11 @@ export function ContextManagerDialog({
 }: ContextManagerDialogProps) {
   const entries = useContextStore((state) => state.entries);
   const clear = useContextStore((state) => state.clear);
+  const remove = useContextStore((state) => state.remove);
+  const setActiveConnection = useAppStore(
+    (state) => state.setActiveConnection,
+  );
+  const setActiveDatabase = useAppStore((state) => state.setActiveDatabase);
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<AgentContextEntry | null>(null);
   const normalized = query.trim().toLowerCase();
@@ -48,8 +60,54 @@ export function ContextManagerDialog({
               </div>
             ) : (
               visible.map((entry) => (
-                <button
+                <ContextMenu
                   key={entry.key}
+                  content={
+                    <>
+                      <ContextMenuItem onSelect={() => setEditing(entry)}>
+                        Edit
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onSelect={() =>
+                          void copyText(entry.content, "Personal context")
+                        }
+                      >
+                        Copy
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onSelect={() => {
+                          setActiveConnection(entry.clusterId);
+                          if (entry.database) {
+                            setActiveDatabase(entry.database);
+                          }
+                          onClose();
+                        }}
+                      >
+                        Reveal associated schema entity
+                      </ContextMenuItem>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
+                        danger
+                        onSelect={() => {
+                          if (
+                            window.confirm(
+                              `Delete personal context for “${
+                                entry.entityName ??
+                                entry.database ??
+                                entry.clusterName
+                              }”?`,
+                            )
+                          ) {
+                            void remove(entry.key);
+                          }
+                        }}
+                      >
+                        Delete…
+                      </ContextMenuItem>
+                    </>
+                  }
+                >
+                <button
                   type="button"
                   className="block w-full border-b border-[var(--color-border)] p-2 text-left last:border-b-0 hover:bg-[var(--color-bg-hover)]"
                   onClick={() => setEditing(entry)}
@@ -61,6 +119,7 @@ export function ContextManagerDialog({
                     {entry.scope} · {entry.content}
                   </div>
                 </button>
+                </ContextMenu>
               ))
             )}
           </div>

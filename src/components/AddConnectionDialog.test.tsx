@@ -11,6 +11,7 @@ vi.mock("../lib/tauri", () => ({
 }));
 
 import * as api from "../lib/tauri";
+import { makeConnection } from "../lib/connection";
 import { baseDataState, useAppStore } from "../store/appStore";
 import { AddConnectionDialog } from "./AddConnectionDialog";
 
@@ -55,5 +56,29 @@ describe("AddConnectionDialog", () => {
     expect(screen.getByText(/empty/i)).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
     expect(useAppStore.getState().connections).toHaveLength(0);
+  });
+
+  it("edits a connection name and tenant without changing its URL", async () => {
+    const connection = makeConnection({ clusterUrl: "help" });
+    useAppStore.setState({ connections: [connection] });
+    render(
+      <AddConnectionDialog
+        open
+        connection={connection}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const name = screen.getByLabelText("Connection name");
+    await userEvent.clear(name);
+    await userEvent.type(name, "Production");
+    await userEvent.type(screen.getByLabelText("Tenant"), "contoso.com");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(useAppStore.getState().connections[0]).toMatchObject({
+      name: "Production",
+      clusterUrl: connection.clusterUrl,
+      tenant: "contoso.com",
+    });
   });
 });

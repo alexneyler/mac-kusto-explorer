@@ -1,5 +1,7 @@
 import {
   FolderOpen,
+  Copy,
+  Download,
   MessageSquare,
   Pencil,
   RefreshCw,
@@ -15,6 +17,11 @@ import {
 } from "react";
 
 import { useAgentStore } from "../../store/agentStore";
+import { copyText } from "../../lib/clipboard";
+import { showToast } from "../../store/toast";
+import { errorMessage } from "../../types/kusto";
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
 import type { AgentSessionSummary } from "../../types/agent";
 import { Modal } from "../ui/Modal";
 
@@ -128,7 +135,7 @@ export function AgentSessionBrowser({ onClose }: { onClose(): void }) {
                   onContextMenu={(event) => {
                     event.preventDefault();
                     const menuWidth = 160;
-                    const menuHeight = 108;
+                    const menuHeight = 180;
                     setMenu({
                       session,
                       x: Math.min(
@@ -195,6 +202,25 @@ export function AgentSessionBrowser({ onClose }: { onClose(): void }) {
             }}
           >
             Rename
+          </SessionMenuButton>
+          <SessionMenuButton
+            icon={<Copy size={13} />}
+            onClick={() => {
+              void copyText(menu.session.sessionId, "Session ID");
+              setMenu(null);
+            }}
+          >
+            Copy session ID
+          </SessionMenuButton>
+          <SessionMenuButton
+            icon={<Download size={13} />}
+            disabled={menu.session.sessionId !== activeSessionId}
+            onClick={() => {
+              void exportActiveConversation(menu.session);
+              setMenu(null);
+            }}
+          >
+            Export conversation
           </SessionMenuButton>
           <SessionMenuButton
             danger
@@ -363,6 +389,7 @@ function relativeTime(timestamp: string): string {
   if (Math.abs(deltaSeconds) < 60) {
     return formatter.format(deltaSeconds, "second");
   }
+
   const deltaMinutes = Math.round(deltaSeconds / 60);
   if (Math.abs(deltaMinutes) < 60) {
     return formatter.format(deltaMinutes, "minute");
@@ -380,4 +407,30 @@ function relativeTime(timestamp: string): string {
     return formatter.format(deltaMonths, "month");
   }
   return formatter.format(Math.round(deltaMonths / 12), "year");
+}
+
+async function exportActiveConversation(
+  session: AgentSessionSummary,
+): Promise<void> {
+  const state = useAgentStore.getState();
+  if (state.sessionId !== session.sessionId) return;
+  try {
+    const transcript = state.messages
+      .map((message) => `## ${message.kind}\n\n${message.content}`)
+      .join("\n\n");
+    const defaultPath = `${sessionTitle(session).replace(
+      /[^A-Za-z0-9_-]+/g,
+      "-",
+    )}.md`;
+    const path = await save({
+      title: "Export conversation",
+      defaultPath,
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+    });
+    if (!path) return;
+    await writeTextFile(path, transcript);
+    showToast("Conversation exported", "success");
+  } catch (error) {
+    showToast(errorMessage(error), "error");
+  }
 }

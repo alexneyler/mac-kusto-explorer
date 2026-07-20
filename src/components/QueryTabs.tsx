@@ -2,6 +2,12 @@ import { Plus, X } from "lucide-react";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import { useAppStore } from "../store/appStore";
+import { copyText } from "../lib/clipboard";
+import {
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "./ui/ContextMenu";
 
 /**
  * Kusto.Explorer–style query tab bar. Each tab owns its own editor text and
@@ -14,7 +20,10 @@ export function QueryTabs() {
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const addTab = useAppStore((s) => s.addTab);
   const closeTab = useAppStore((s) => s.closeTab);
+  const closeOtherTabs = useAppStore((s) => s.closeOtherTabs);
+  const closeTabsToRight = useAppStore((s) => s.closeTabsToRight);
   const renameTab = useAppStore((s) => s.renameTab);
+  const openQueryTab = useAppStore((s) => s.openQueryTab);
 
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -27,8 +36,55 @@ export function QueryTabs() {
       {tabs.map((tab) => {
         const active = tab.id === activeTabId;
         return (
-          <div
+          <ContextMenu
             key={tab.id}
+            content={
+              <>
+                <ContextMenuItem onSelect={() => setEditingId(tab.id)}>
+                  Rename
+                </ContextMenuItem>
+                <ContextMenuItem
+                  onSelect={() =>
+                    openQueryTab({
+                      title: `${tab.title} copy`,
+                      query: tab.query,
+                      connectionId: tab.connectionId,
+                      database: tab.database,
+                    })
+                  }
+                >
+                  Duplicate
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={tab.query.trim() === ""}
+                  onSelect={() => void copyText(tab.query, "Query")}
+                >
+                  Copy query
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem onSelect={() => closeTab(tab.id)}>
+                  Close
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={tabs.length === 1}
+                  onSelect={() => closeOtherTabs(tab.id)}
+                >
+                  Close other tabs
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={tabs.indexOf(tab) === tabs.length - 1}
+                  onSelect={() => closeTabsToRight(tab.id)}
+                >
+                  Close tabs to the right
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem onSelect={() => addTab()}>
+                  New query tab
+                </ContextMenuItem>
+              </>
+            }
+          >
+          <div
             role="tab"
             aria-selected={active}
             tabIndex={active ? 0 : -1}
@@ -73,6 +129,7 @@ export function QueryTabs() {
               <X size={12} />
             </button>
           </div>
+          </ContextMenu>
         );
       })}
       <button
